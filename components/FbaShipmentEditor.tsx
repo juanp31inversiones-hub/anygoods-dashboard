@@ -44,9 +44,14 @@ export function FbaShipmentEditor({ initial, products, defaultProduct }: {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
+  // Origen sugerido: donde el producto tiene más unidades
+  const bestOrigin = (productId?: string) => {
+    const st = products.find((p) => p.product_id === productId)?.stock ?? {};
+    return ORIGINS.reduce((best, loc) => ((st[loc] ?? 0) > (st[best] ?? 0) ? loc : best), "own_warehouse");
+  };
   const [s, setS] = useState<FbaShipmentPayload>(
     initial ?? {
-      shipment_id: "", name: "", destination_fc: "", from_location: "own_warehouse", status: "working",
+      shipment_id: "", name: "", destination_fc: "", from_location: bestOrigin(defaultProduct), status: "working",
       created_on: today(), shipped_on: "", closed_on: "", carrier: "amazon_partnered", tracking: "", boxes: "", weight_lb: "", notes: "",
       items: [emptyItem(defaultProduct ?? "")], costs: [],
     },
@@ -164,14 +169,38 @@ export function FbaShipmentEditor({ initial, products, defaultProduct }: {
               return (
                 <tr key={i}>
                   <td className="min-w-[240px]">
-                    <select value={it.product_id} onChange={(e) => setItem(i, { product_id: e.target.value })} className="input">
+                    <select value={it.product_id}
+                      onChange={(e) => {
+                        const pid = e.target.value;
+                        setItem(i, { product_id: pid });
+                        // Si es el único producto y no hay stock en el origen, cambia al lugar donde sí hay
+                        const st = byId.get(pid)?.stock ?? {};
+                        if (s.items.length === 1 && !(st[s.from_location] > 0)) set("from_location", bestOrigin(pid));
+                      }} className="input">
                       <option value="">Selecciona…</option>
-                      {products.filter((x) => x.product_id === it.product_id || !usedIds.has(x.product_id)).map((x) => (
-                        <option key={x.product_id} value={x.product_id}>
-                          {x.description} ({units(x.stock[s.from_location] ?? 0)} disp.)
-                        </option>
-                      ))}
+                      {products.filter((x) => x.product_id === it.product_id || !usedIds.has(x.product_id)).map((x) => {
+                        const outside = ORIGINS.reduce((a, loc) => a + Math.max(0, x.stock[loc] ?? 0), 0);
+                        return (
+                          <option key={x.product_id} value={x.product_id}>
+                            {x.description} ({units(outside)} fuera de Amazon)
+                          </option>
+                        );
+                      })}
                     </select>
+                    {p && (
+                      <div className="text-[11px] mt-1 flex flex-wrap gap-x-2 gap-y-0.5 items-center">
+                        {ORIGINS.filter((loc) => (p.stock[loc] ?? 0) !== 0).map((loc) => (
+                          <span key={loc} className={loc === s.from_location ? "font-semibold" : "muted"}>{LOCATION_LABELS[loc]}: {units(p.stock[loc])}</span>
+                        ))}
+                        {(p.stock.amazon_fba ?? 0) !== 0 && <span className="muted">Amazon: {units(p.stock.amazon_fba)}</span>}
+                        {avail === 0 && ORIGINS.some((loc) => (p.stock[loc] ?? 0) > 0) && (
+                          <button type="button" className="link" onClick={() => set("from_location", bestOrigin(p.product_id))}>
+                            Usar {LOCATION_LABELS[bestOrigin(p.product_id)]}
+                          </button>
+                        )}
+                        {ORIGINS.every((loc) => (p.stock[loc] ?? 0) <= 0) && <span className="neg">Sin stock fuera de Amazon: registra primero la compra.</span>}
+                      </div>
+                    )}
                   </td>
                   <td className="num">{it.product_id ? units(avail) : "—"}</td>
                   <td className="num w-28">

@@ -6,7 +6,7 @@ import { DeleteButton } from "@/components/forms";
 import { BackLink } from "@/components/ui";
 import { PackageMinus, Send } from "lucide-react";
 import { deleteProduct } from "@/lib/actions";
-import { COST_TYPES, COST_TYPE_LABELS, LOCATION_LABELS, MOVEMENT_LABELS, date, money, units } from "@/lib/format";
+import { COST_TYPES, COST_TYPE_LABELS, LOCATIONS, LOCATION_LABELS, MOVEMENT_LABELS, date, money, units } from "@/lib/format";
 import { Plus } from "lucide-react";
 
 export default async function EditarProducto({ params }: { params: Promise<{ id: string }> }) {
@@ -43,6 +43,21 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
           <DeleteButton action={deleteProduct.bind(null, id)} confirmText="¿Eliminar este producto? Si tiene compras asociadas, desactívalo en su lugar." />
         </div>
       </div>
+
+      <section className="card p-4">
+        <div className="label">¿Dónde están las unidades hoy?</div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1">
+          {LOCATIONS.map((loc) => {
+            const q = (moves ?? []).filter((m) => m.location === loc).reduce((a, m) => a + m.qty, 0);
+            return (
+              <div key={loc} className="rounded-lg p-3" style={{ background: q ? "var(--accent-soft)" : "var(--bg)" }}>
+                <div className="muted text-xs">{LOCATION_LABELS[loc]}</div>
+                <div className="text-lg font-semibold tabular-nums">{units(q)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {stock && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

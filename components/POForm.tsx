@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
 import { savePurchaseOrder, type POCost, type POLine, type POPayload } from "@/lib/actions";
-import { LOCATION_LABELS, PO_COST_TYPE_LABELS, STATUS_LABELS, money } from "@/lib/format";
+import { ARRIVAL_LOCATIONS, LOCATION_LABELS, PO_COST_TYPE_LABELS, STATUS_LABELS, money, units } from "@/lib/format";
 import { Field } from "@/components/ui";
 
 type Option = { id: string; name: string };
@@ -32,10 +32,12 @@ export function allocateCosts(lines: POLine[], costs: POCost[]) {
   return perLine;
 }
 
-export function POForm({ initial, suppliers, products }: {
+export function POForm({ initial, suppliers, products, stock = {} }: {
   initial?: POPayload;
   suppliers: Option[];
   products: ProductOption[];
+  /** Stock actual por producto y ubicación, para mostrar dónde está cada producto hoy. */
+  stock?: Record<string, Record<string, number>>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -109,9 +111,14 @@ export function POForm({ initial, suppliers, products }: {
             {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </Field>
-        <Field label="¿Dónde llega la mercancía?">
-          <select value={po.location} onChange={(e) => set("location", e.target.value)} className="input">
-            {Object.entries(LOCATION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        <Field label="¿Dónde llega la mercancía?" hint="Puedes cambiarlo por producto abajo.">
+          <select value={po.location}
+            onChange={(e) => {
+              const loc = e.target.value;
+              // Aplica a todas las líneas: es el caso normal (toda la compra llega al mismo lugar)
+              setPo((p) => ({ ...p, location: loc, lines: p.lines.map((l) => ({ ...l, location: loc })) }));
+            }} className="input">
+            {ARRIVAL_LOCATIONS.map((k) => <option key={k} value={k}>{LOCATION_LABELS[k]}</option>)}
           </select>
         </Field>
       </section>
@@ -123,14 +130,14 @@ export function POForm({ initial, suppliers, products }: {
             <h2 className="font-semibold">1. Productos (compra neta al proveedor)</h2>
             <p className="muted text-xs">Lo que factura el proveedor por la mercancía.</p>
           </div>
-          <button type="button" className="btn-ghost text-xs" onClick={() => setPo((p) => ({ ...p, lines: [...p.lines, { ...EMPTY_LINE }] }))}>
+          <button type="button" className="btn-ghost text-xs" onClick={() => setPo((p) => ({ ...p, lines: [...p.lines, { ...EMPTY_LINE, location: p.location }] }))}>
             <Plus size={14} /> Agregar producto
           </button>
         </div>
-        <table className="data mt-2 min-w-[860px]">
+        <table className="data mt-2 min-w-[1020px]">
           <thead>
             <tr>
-              <th>Producto</th><th className="num">Cajas</th><th className="num">Unidades</th><th className="num">Costo proveedor/u</th>
+              <th>Producto</th><th>Llega a</th><th className="num">Cajas</th><th className="num">Unidades</th><th className="num">Costo proveedor/u</th>
               <th className="num">Subtotal</th><th className="num">+ Costos adic./u</th><th className="num">= Costo neto/u</th><th />
             </tr>
           </thead>
@@ -144,6 +151,17 @@ export function POForm({ initial, suppliers, products }: {
                     <select required value={l.product_id} onChange={(e) => setLine(i, { product_id: e.target.value })} className="input">
                       <option value="">Selecciona…</option>
                       {products.map((p) => <option key={p.id} value={p.id}>{p.description}</option>)}
+                    </select>
+                    {l.id && stock[l.product_id] && (
+                      <div className="muted text-[11px] mt-1">
+                        Hoy: {Object.entries(stock[l.product_id]).filter(([, q]) => q !== 0).map(([loc, q]) => `${LOCATION_LABELS[loc] ?? loc} ${units(q)}`).join(" · ") || "sin stock"}
+                      </div>
+                    )}
+                  </td>
+                  <td className="w-44">
+                    <select value={l.location ?? po.location} onChange={(e) => setLine(i, { location: e.target.value })} className="input">
+                      {ARRIVAL_LOCATIONS.map((k) => <option key={k} value={k}>{LOCATION_LABELS[k]}</option>)}
+                      {l.location && !ARRIVAL_LOCATIONS.includes(l.location) && <option value={l.location}>{LOCATION_LABELS[l.location] ?? l.location}</option>}
                     </select>
                   </td>
                   <td className="num w-20"><input type="number" step="any" min="0" value={l.cases} onChange={(e) => setLine(i, { cases: e.target.value })} className="input text-right" /></td>
@@ -160,7 +178,7 @@ export function POForm({ initial, suppliers, products }: {
             })}
           </tbody>
         </table>
-        <p className="muted text-xs px-4 py-2">Si el producto tiene “unidades por caja”, al escribir las cajas se calculan las unidades.</p>
+        <p className="muted text-xs px-4 py-2">“Llega a” es donde recibes las unidades compradas. Para mandarlas a Amazon, crea un envío en Envíos FBA: ahí decides cuántas envías. Si el producto tiene “unidades por caja”, al escribir las cajas se calculan las unidades.</p>
       </section>
 
       {/* 2. Costos adicionales */}

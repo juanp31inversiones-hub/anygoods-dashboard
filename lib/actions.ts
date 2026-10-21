@@ -88,7 +88,7 @@ export async function deleteCounterparty(id: string): Promise<ActionState> {
 }
 
 // ===== Órdenes de compra =====
-export type POLine = { id?: string; product_id: string; cases: string; units: string; unit_cost: string };
+export type POLine = { id?: string; product_id: string; cases: string; units: string; unit_cost: string; location?: string };
 export type POCost = {
   id?: string;
   cost_type: string;
@@ -131,6 +131,20 @@ export async function savePurchaseOrder(p: POPayload): Promise<ActionState> {
 
   const supabase = await createClient();
   if (p.id) {
+    // No permitir mover la llegada de una línea si ya se enviaron unidades desde esa ubicación.
+    const changed = p.lines.filter((l) => l.id && l.location);
+    if (changed.length) {
+      const { data: purchases } = await supabase.from("inventory_movements").select("po_line_id, product_id, location, qty")
+        .eq("movement", "purchase").in("po_line_id", changed.map((l) => l.id!));
+      for (const m of purchases ?? []) {
+        const line = changed.find((l) => l.id === m.po_line_id);
+        if (!line || line.location === m.location) continue;
+        const { data: atOld } = await supabase.from("inventory_movements").select("qty").eq("product_id", m.product_id).eq("location", m.location);
+        const remaining = (atOld ?? []).reduce((a, r) => a + r.qty, 0) - m.qty;
+        if (remaining < 0)
+          return { error: "Ya hay envíos o salidas desde la ubicación original de un producto de esta compra. Corrige primero esos envíos o deja la ubicación como estaba." };
+      }
+    }
     // Borra las líneas que se quitaron del formulario (y sus movimientos de inventario).
     const { data: existing } = await supabase.from("purchase_order_lines").select("id").eq("purchase_order_id", p.id);
     const keep = new Set(p.lines.map((l) => l.id).filter(Boolean));

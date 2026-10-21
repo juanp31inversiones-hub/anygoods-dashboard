@@ -51,6 +51,9 @@ export const LOCATION_LABELS: Record<string, string> = {
   amazon_fba: "Amazon FBA",
 };
 
+/** Dónde puede llegar una compra. A Amazon se llega solo con un envío FBA. */
+export const ARRIVAL_LOCATIONS = ["own_warehouse", "supplier_warehouse", "prep_center"];
+
 /** Ubicaciones en orden de flujo: llega la compra → se envía a Amazon. */
 export const LOCATIONS = Object.keys(LOCATION_LABELS);
 

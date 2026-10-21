@@ -7,18 +7,27 @@ import { DeleteButton } from "@/components/forms";
 import { BackLink } from "@/components/ui";
 import { deletePurchaseOrder, type POPayload } from "@/lib/actions";
 import { SUPPLIER_KINDS } from "@/lib/format";
+import { stockByLocation } from "@/lib/stock";
 
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 export default async function EditarCompra({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-  const [opts, { data: po }, { data: docs }] = await Promise.all([
+  const [opts, { data: po }, { data: docs }, stockRows] = await Promise.all([
     formOptions(supabase),
     supabase.from("purchase_orders").select("*, purchase_order_lines(id, product_id, cases, units, unit_cost), additional_costs(id, cost_type, description, amount, product_id, allocation, cost_date, counterparty_id)").is("additional_costs.moved_to_shipment_id", null).eq("id", id).single(),
     supabase.from("po_documents").select("id, doc_type, file_path, file_name, size_bytes, created_at").eq("purchase_order_id", id).order("created_at"),
+    stockByLocation(supabase, false),
   ]);
   if (!po) notFound();
+  // Dónde llegó cada línea (movimiento de compra)
+  const lineIds = (po.purchase_order_lines as { id: string }[]).map((l) => l.id);
+  const { data: arrivals } = lineIds.length
+    ? await supabase.from("inventory_movements").select("po_line_id, location").eq("movement", "purchase").in("po_line_id", lineIds)
+    : { data: [] };
+  const arrivalOf = new Map((arrivals ?? []).map((a) => [a.po_line_id as string, a.location as string]));
+  const stock = Object.fromEntries(stockRows.map((r) => [r.product_id, r.stock]));
 
   const initial: POPayload = {
     id: po.id,
@@ -30,9 +39,9 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
     arrival_date: s(po.arrival_date),
     status: s(po.status),
     notes: s(po.notes),
-    location: "own_warehouse",
+    location: arrivalOf.get(lineIds[0]) ?? "own_warehouse",
     lines: (po.purchase_order_lines as { id: string; product_id: string; cases: number | null; units: number; unit_cost: number }[]).map((l) => ({
-      id: l.id, product_id: l.product_id, cases: s(l.cases), units: s(l.units), unit_cost: s(l.unit_cost),
+      id: l.id, product_id: l.product_id, cases: s(l.cases), units: s(l.units), unit_cost: s(l.unit_cost), location: arrivalOf.get(l.id) ?? "own_warehouse",
     })),
     costs: (po.additional_costs as { id: string; cost_type: string; description: string | null; amount: number; product_id: string | null; allocation: "units" | "value"; cost_date: string | null; counterparty_id: string | null }[]).map((c) => ({
       id: c.id, cost_type: c.cost_type, description: s(c.description),
@@ -50,7 +59,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
       </div>
       <p className="muted text-sm">Al guardar se recalcula el costo neto por unidad de cada producto con sus costos adicionales.</p>
       <PODocuments poId={id} docs={(docs ?? []) as PODocument[]} />
-      <POForm initial={initial} suppliers={opts.counterparties.filter((c) => SUPPLIER_KINDS.includes(c.kind) || c.id === po.supplier_id || c.id === po.paid_via_id)} products={opts.products} />
+      <POForm initial={initial} suppliers={opts.counterparties.filter((c) => SUPPLIER_KINDS.includes(c.kind) || c.id === po.supplier_id || c.id === po.paid_via_id)} products={opts.products} stock={stock} />
     </div>
   );
 }
