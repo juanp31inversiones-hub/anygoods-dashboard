@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="card p-6 max-w-lg">
             <h2 className="font-semibold">Acceso pendiente</h2>
             <p className="muted text-sm mt-2">
-              El correo <strong>{user.email}</strong> no está registrado como socio de AnyGoods. Pide a un
+              El correo <strong>{user.email}</strong> no tiene acceso a AnyGoods Dashboard. Pide a un
               administrador que lo agregue.
             </p>
           </div>

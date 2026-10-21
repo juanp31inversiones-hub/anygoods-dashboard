@@ -11,8 +11,8 @@ Control de compras, inventario, banco y números de AnyGoods LLC (Amazon FBA).
 - **Banco:** movimientos de Mercury categorizados y enlazados a órdenes de compra.
 
 ## Acceso
-Login con enlace mágico por email. Solo entran los correos registrados en `partners.email`;
-el primer login vincula el usuario con su socio (`claim_partner()`).
+Login con enlace mágico por email. Solo entran los correos registrados en `app_members`;
+el primer login vincula el usuario (`claim_partner()`). Para dar acceso: `insert into app_members (email) values (...)`.
 
 ## Base de datos
 Migraciones en `supabase/migrations/`. Carga histórica desde los Excel con `scripts/import_excel.py`.
