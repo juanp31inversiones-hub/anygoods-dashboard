@@ -308,7 +308,7 @@ export async function syncFinances(supabase: SupabaseClient, budgetMs = 240_000)
 // ===== Pagos (liquidaciones / settlements) y cruce con el banco =====
 type EventGroup = {
   FinancialEventGroupId: string; ProcessingStatus?: string; FundTransferStatus?: string;
-  OriginalTotal?: { CurrencyCode?: string; CurrencyAmount?: number }; BeginningBalance?: { CurrencyAmount?: number };
+  OriginalTotal?: { CurrencyCode?: string; CurrencyAmount?: number }; ConvertedTotal?: { CurrencyAmount?: number }; BeginningBalance?: { CurrencyAmount?: number };
   FundTransferDate?: string; TraceId?: string; AccountTail?: string;
   FinancialEventGroupStart?: string; FinancialEventGroupEnd?: string;
 };
@@ -316,17 +316,25 @@ type EventGroup = {
 export async function syncPayouts(supabase: SupabaseClient) {
   const finish = await logRun(supabase, "payouts");
   try {
-    const groups: EventGroup[] = [];
-    let next: string | undefined;
-    do {
-      const res = await spGet<{ payload?: { FinancialEventGroupList?: EventGroup[]; NextToken?: string } }>(
-        "/finances/v0/financialEventGroups",
-        next ? { NextToken: next, MaxResultsPerPage: "100" } : { FinancialEventGroupStartedAfter: "2025-03-01T00:00:00Z", MaxResultsPerPage: "100" },
-      );
-      groups.push(...(res.payload?.FinancialEventGroupList ?? []));
-      next = res.payload?.NextToken;
-      if (next) await sleep(2100);
-    } while (next);
+    // Amazon solo devuelve ~1 año por consulta: se pide por ventanas de 90 días hasta hoy.
+    const byId = new Map<string, EventGroup>();
+    const nowSafe = Date.now() - 5 * 60_000;
+    for (let start = Date.parse("2025-03-01T00:00:00Z"); start < nowSafe; start += 90 * 86_400_000) {
+      const end = Math.min(start + 90 * 86_400_000, nowSafe);
+      let next: string | undefined;
+      do {
+        const res = await spGet<{ payload?: { FinancialEventGroupList?: EventGroup[]; NextToken?: string } }>(
+          "/finances/v0/financialEventGroups",
+          next
+            ? { NextToken: next, MaxResultsPerPage: "100" }
+            : { FinancialEventGroupStartedAfter: new Date(start).toISOString(), FinancialEventGroupStartedBefore: new Date(end).toISOString(), MaxResultsPerPage: "100" },
+        );
+        for (const g of res.payload?.FinancialEventGroupList ?? []) byId.set(g.FinancialEventGroupId, g);
+        next = res.payload?.NextToken;
+        await sleep(2100);
+      } while (next);
+    }
+    const groups = [...byId.values()];
 
     if (groups.length) {
       const rows = groups.map((g) => ({
@@ -336,7 +344,7 @@ export async function syncPayouts(supabase: SupabaseClient) {
         period_start: g.FinancialEventGroupStart ?? null,
         period_end: g.FinancialEventGroupEnd ?? null,
         fund_transfer_date: g.FundTransferDate ?? null,
-        amount: g.OriginalTotal?.CurrencyAmount ?? null,
+        amount: g.OriginalTotal?.CurrencyAmount ?? g.ConvertedTotal?.CurrencyAmount ?? null,
         currency: g.OriginalTotal?.CurrencyCode ?? null,
         beginning_balance: g.BeginningBalance?.CurrencyAmount ?? null,
         trace_id: g.TraceId ?? null,

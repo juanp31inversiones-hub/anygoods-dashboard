@@ -32,7 +32,7 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
     supabase.from("amazon_sync_runs").select("kind, status, message, started_at, finished_at").order("started_at", { ascending: false }).limit(30),
     supabase.from("amazon_listings").select("sku, asin, fnsku, title, product_id").order("title"),
     supabase.from("amazon_inventory").select("*"),
-    supabase.from("amazon_financial_events").select("event_type, posted_date, sku, quantity, principal, shipping, promotion, fba_fee, referral_fee, other_fees, total, description").gte("posted_date", since).limit(20000),
+    allEvents(supabase, since),
     supabase.from("products").select("id, description, image_url, active").order("description"),
     supabase.from("v_inventory_on_hand").select("product_id, fba_unit_cost"),
     supabase.from("inventory_movements").select("product_id, qty").eq("location", "amazon_fba"),
@@ -48,6 +48,17 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
   const costOf = new Map((stock ?? []).map((s) => [s.product_id, Number(s.fba_unit_cost ?? 0)]));
   const evs = (events ?? []) as Ev[];
   const unlinked = (listings ?? []).filter((l) => !l.product_id);
+  // Pistas para vincular SKUs sin título: ventas, precio promedio y fechas (de todo el historial).
+  const skuStats = new Map<string, { sold: number; revenue: number; first: string; last: string }>();
+  for (const e of (tab === "skus" ? (await allEvents(supabase, "2000-01-01")).data : []) as Ev[]) {
+    if (!e.sku || e.event_type !== "shipment") continue;
+    const st = skuStats.get(e.sku) ?? { sold: 0, revenue: 0, first: e.posted_date, last: e.posted_date };
+    st.sold += Number(e.quantity ?? 0);
+    st.revenue += Number(e.principal) + Number(e.shipping) + Number(e.promotion);
+    if (e.posted_date < st.first) st.first = e.posted_date;
+    if (e.posted_date > st.last) st.last = e.posted_date;
+    skuStats.set(e.sku, st);
+  }
   const finState = state?.value as { done_until?: string } | undefined;
 
   return (
@@ -115,17 +126,27 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
       {tab === "skus" && (
         <section className="card overflow-x-auto">
           <table className="data min-w-[860px]">
-            <thead><tr><th>SKU</th><th>ASIN</th><th>Título en Amazon</th><th>Producto en AnyGoods</th></tr></thead>
+            <thead><tr><th>SKU</th><th>ASIN</th><th>Título en Amazon</th><th className="num">Vendidas</th><th className="num">Precio prom.</th><th>Vendió entre</th><th>Producto en AnyGoods</th></tr></thead>
             <tbody>
               {(listings ?? []).map((l) => (
                 <tr key={l.sku}>
                   <td className="font-mono text-xs">{l.sku}</td>
                   <td className="muted">{l.asin ?? "—"}</td>
                   <td className="max-w-[360px]">{l.title ?? <span className="muted">—</span>}</td>
+                  {(() => {
+                    const st = skuStats.get(l.sku);
+                    return st ? (
+                      <>
+                        <td className="num">{st.sold}</td>
+                        <td className="num">{money(st.sold ? st.revenue / st.sold : 0)}</td>
+                        <td className="whitespace-nowrap text-xs">{date(st.first.slice(0, 10))} – {date(st.last.slice(0, 10))}</td>
+                      </>
+                    ) : <><td className="num muted">0</td><td /><td /></>;
+                  })()}
                   <td><LinkSelect sku={l.sku} productId={l.product_id} products={(products ?? []).map((p) => ({ id: p.id, description: p.description }))} /></td>
                 </tr>
               ))}
-              {(listings ?? []).length === 0 && <tr><td colSpan={4} className="muted">Sincroniza el inventario FBA para ver tus SKUs.</td></tr>}
+              {(listings ?? []).length === 0 && <tr><td colSpan={7} className="muted">Sincroniza el inventario FBA para ver tus SKUs.</td></tr>}
             </tbody>
           </table>
         </section>
@@ -363,4 +384,17 @@ function Payouts({ payouts, bank }: { payouts: PayoutRow[]; bank: BankRow[] }) {
       <p className="muted text-xs">Cada liquidación se cruza con el movimiento de Amazon en Mercury del mismo monto (hasta 10 días después). Las liquidaciones negativas son cargos de Amazon a tu tarjeta o cuenta cuando el saldo quedó en contra.</p>
     </div>
   );
+}
+
+/** Supabase devuelve máximo 1.000 filas por consulta: se pagina para traer todo el historial. */
+async function allEvents(supabase: Awaited<ReturnType<typeof createClient>>, since: string) {
+  const rows: Ev[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("amazon_financial_events")
+      .select("event_type, posted_date, sku, quantity, principal, shipping, promotion, fba_fee, referral_fee, other_fees, total, description")
+      .gte("posted_date", since).order("posted_date").order("id").range(from, from + 999);
+    if (error) return { data: rows, error };
+    rows.push(...((data ?? []) as Ev[]));
+    if ((data ?? []).length < 1000) return { data: rows, error: null };
+  }
 }
