@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ProductForm, type Product } from "@/components/ProductForm";
 import { DeleteButton } from "@/components/forms";
 import { BackLink } from "@/components/ui";
-import { ArrowRightLeft, PackageMinus } from "lucide-react";
+import { PackageMinus, Send } from "lucide-react";
 import { deleteProduct } from "@/lib/actions";
 import { COST_TYPES, COST_TYPE_LABELS, LOCATION_LABELS, MOVEMENT_LABELS, date, money, units } from "@/lib/format";
 import { Plus } from "lucide-react";
@@ -36,8 +36,8 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
         <div className="flex flex-wrap gap-2 items-start">
           {Number(stock?.units_on_hand ?? 0) !== 0 && (
             <>
-              <Link href={`/inventario/conteo?product=${id}`} className="btn-primary"><PackageMinus size={16} /> Dar salida</Link>
-              <Link href={`/inventario/movimiento?product=${id}`} className="btn-ghost"><ArrowRightLeft size={16} /> Trasladar</Link>
+              <Link href={`/inventario/envio?product=${id}`} className="btn-primary"><Send size={16} /> Enviar a Amazon</Link>
+              <Link href={`/inventario/conteo?product=${id}`} className="btn-ghost"><PackageMinus size={16} /> Dar salida</Link>
             </>
           )}
           <DeleteButton action={deleteProduct.bind(null, id)} confirmText="¿Eliminar este producto? Si tiene compras asociadas, desactívalo en su lugar." />
@@ -47,7 +47,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
       {stock && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="card p-3"><div className="muted text-xs">En FBA</div><div className="text-lg font-semibold">{units(stock.units_fba)}</div></div>
-          <div className="card p-3"><div className="muted text-xs">Fuera de FBA</div><div className="text-lg font-semibold">{units(stock.units_other)}</div></div>
+          <div className="card p-3"><div className="muted text-xs">En mi inventario y otros</div><div className="text-lg font-semibold">{units(stock.units_other)}</div></div>
           <div className="card p-3"><div className="muted text-xs">Costo promedio</div><div className="text-lg font-semibold">{money(stock.avg_cost)}</div></div>
           <div className="card p-3"><div className="muted text-xs">Valor a costo</div><div className="text-lg font-semibold">{money(stock.inventory_value)}</div></div>
         </div>

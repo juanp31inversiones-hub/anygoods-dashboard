@@ -44,7 +44,7 @@ export function POForm({ initial, suppliers, products }: {
     initial ?? {
       supplier_id: "", paid_via_id: "", po_number: "", invoice_number: "",
       purchase_date: new Date().toISOString().slice(0, 10), arrival_date: "", status: "ordered",
-      notes: "", location: "amazon_fba", lines: [{ ...EMPTY_LINE }], costs: [],
+      notes: "", location: "own_warehouse", lines: [{ ...EMPTY_LINE }], costs: [],
     },
   );
   const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
@@ -79,7 +79,9 @@ export function POForm({ initial, suppliers, products }: {
     start(async () => {
       const res = await savePurchaseOrder(payload);
       if (res?.error) setError(res.error);
-      else router.push(`/compras?ok=${encodeURIComponent(po.id ? "Orden actualizada" : "Orden creada")}`);
+      else if (po.id) router.push(`/compras?ok=${encodeURIComponent("Orden actualizada")}`);
+      // Orden nueva: ir a la orden para adjuntar PO, invoice y comprobante de pago.
+      else router.push(`/compras/${res?.id}?ok=${encodeURIComponent("Orden creada. Ahora adjunta los documentos.")}`);
     });
   }
 
@@ -107,7 +109,7 @@ export function POForm({ initial, suppliers, products }: {
             {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </Field>
-        <Field label="Ubicación de productos nuevos">
+        <Field label="¿Dónde llega la mercancía?">
           <select value={po.location} onChange={(e) => set("location", e.target.value)} className="input">
             {Object.entries(LOCATION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>

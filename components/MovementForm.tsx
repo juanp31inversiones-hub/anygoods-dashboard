@@ -35,7 +35,7 @@ export function MovementForm({ products, defaultProduct }: { products: { id: str
       </Field>
       <Field label="Fecha *"><input type="date" name="occurred_on" required defaultValue={new Date().toISOString().slice(0, 10)} className="input" /></Field>
       <Field label={isTransfer ? "Desde" : "Ubicación"}>
-        <select name="location" defaultValue={isTransfer ? "supplier_warehouse" : "amazon_fba"} key={String(isTransfer)} className="input">
+        <select name="location" defaultValue={isTransfer ? "own_warehouse" : "own_warehouse"} key={String(isTransfer)} className="input">
           {Object.entries(LOCATION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </Field>

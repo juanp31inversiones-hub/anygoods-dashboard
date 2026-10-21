@@ -44,11 +44,14 @@ export const MOVEMENT_LABELS: Record<string, string> = {
 };
 
 export const LOCATION_LABELS: Record<string, string> = {
-  amazon_fba: "Amazon FBA",
-  supplier_warehouse: "Almacén proveedor",
-  own_warehouse: "Bodega propia",
+  own_warehouse: "Mi inventario",
+  supplier_warehouse: "Almacén del proveedor",
   prep_center: "Prep center",
+  amazon_fba: "Amazon FBA",
 };
+
+/** Ubicaciones en orden de flujo: llega la compra → se envía a Amazon. */
+export const LOCATIONS = Object.keys(LOCATION_LABELS);
 
 export const KIND_LABELS: Record<string, string> = {
   supplier: "Proveedor",
@@ -73,3 +76,10 @@ export const COST_TYPE_LABELS: Record<string, string> = {
 
 /** Orden fijo de columnas para los desgloses. */
 export const COST_TYPES = Object.keys(COST_TYPE_LABELS);
+
+export const DOC_TYPE_LABELS: Record<string, string> = {
+  our_po: "Mi PO (orden enviada al proveedor)",
+  supplier_invoice: "Invoice del proveedor",
+  payment_proof: "Comprobante de pago",
+  other: "Otro documento",
+};

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Pencil, Plus, Receipt } from "lucide-react";
+import { CheckCircle2, Circle, Pencil, Plus, Receipt } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { COST_TYPES, COST_TYPE_LABELS, STATUS_LABELS, date, money, units } from "@/lib/format";
@@ -16,6 +16,7 @@ type PO = {
   paid_via: { name: string } | null;
   purchase_order_lines: Line[];
   additional_costs: Cost[];
+  po_documents: { doc_type: string }[];
 };
 
 export default async function Compras() {
@@ -23,7 +24,7 @@ export default async function Compras() {
   const { data } = await supabase
     .from("purchase_orders")
     .select(
-      "id, invoice_number, purchase_date, status, notes, supplier:counterparties!purchase_orders_supplier_id_fkey(name), paid_via:counterparties!purchase_orders_paid_via_id_fkey(name), purchase_order_lines(id, units, unit_cost, landed_unit_cost, products(id, description, asin)), additional_costs(cost_type, amount, description, products(description))",
+      "id, invoice_number, purchase_date, status, notes, supplier:counterparties!purchase_orders_supplier_id_fkey(name), paid_via:counterparties!purchase_orders_paid_via_id_fkey(name), purchase_order_lines(id, units, unit_cost, landed_unit_cost, products(id, description, asin)), additional_costs(cost_type, amount, description, products(description)), po_documents(doc_type)",
     )
     .order("purchase_date", { ascending: false })
     .returns<PO[]>();
@@ -88,6 +89,16 @@ export default async function Compras() {
               <span className="muted text-sm">{date(po.purchase_date)}</span>
               <span className="text-xs rounded px-2 py-0.5" style={{ background: "var(--bg)" }}>{STATUS_LABELS[po.status] ?? po.status}</span>
               {po.paid_via && <span className="text-xs muted">Pagada vía {po.paid_via.name}</span>}
+              <span className="flex gap-2 text-xs muted">
+                {[["our_po", "PO"], ["supplier_invoice", "Invoice"], ["payment_proof", "Pago"]].map(([t, l]) => {
+                  const has = po.po_documents.some((d) => d.doc_type === t);
+                  return (
+                    <span key={t} className="inline-flex items-center gap-1" title={has ? `${l} adjunto` : `Falta ${l}`}>
+                      {has ? <CheckCircle2 size={13} className="pos" /> : <Circle size={13} />} {l}
+                    </span>
+                  );
+                })}
+              </span>
               <span className="ml-auto tabular-nums text-sm">
                 <span className="muted">{money(net(po))} + {money(extra(po))} = </span>
                 <span className="font-semibold">{money(net(po) + extra(po))}</span>
@@ -128,7 +139,7 @@ export default async function Compras() {
               )}
               {po.notes && <p className="muted text-xs px-4 pb-2">{po.notes}</p>}
               <div className="px-4 pb-4 flex gap-2">
-                <Link href={`/compras/${po.id}`} className="btn-ghost text-xs"><Pencil size={14} /> Editar orden y costos</Link>
+                <Link href={`/compras/${po.id}`} className="btn-ghost text-xs"><Pencil size={14} /> Editar, costos y documentos</Link>
                 <Link href={`/compras/costos/nuevo?po=${po.id}`} className="btn-ghost text-xs"><Plus size={14} /> Agregar costo</Link>
               </div>
             </div>

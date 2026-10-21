@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { formOptions } from "@/lib/queries";
 import { POForm } from "@/components/POForm";
+import { PODocuments, type PODocument } from "@/components/PODocuments";
 import { DeleteButton } from "@/components/forms";
 import { BackLink } from "@/components/ui";
 import { deletePurchaseOrder, type POPayload } from "@/lib/actions";
@@ -11,9 +12,10 @@ const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 export default async function EditarCompra({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-  const [opts, { data: po }] = await Promise.all([
+  const [opts, { data: po }, { data: docs }] = await Promise.all([
     formOptions(supabase),
     supabase.from("purchase_orders").select("*, purchase_order_lines(id, product_id, cases, units, unit_cost), additional_costs(id, cost_type, description, amount, product_id, allocation, cost_date, counterparty_id)").eq("id", id).single(),
+    supabase.from("po_documents").select("id, doc_type, file_path, file_name, size_bytes, created_at").eq("purchase_order_id", id).order("created_at"),
   ]);
   if (!po) notFound();
 
@@ -27,7 +29,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
     arrival_date: s(po.arrival_date),
     status: s(po.status),
     notes: s(po.notes),
-    location: "amazon_fba",
+    location: "own_warehouse",
     lines: (po.purchase_order_lines as { id: string; product_id: string; cases: number | null; units: number; unit_cost: number }[]).map((l) => ({
       id: l.id, product_id: l.product_id, cases: s(l.cases), units: s(l.units), unit_cost: s(l.unit_cost),
     })),
@@ -46,6 +48,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
         <DeleteButton action={deletePurchaseOrder.bind(null, id)} confirmText="¿Eliminar esta orden? Se borran sus líneas y movimientos de inventario, y se desvinculan los pagos." />
       </div>
       <p className="muted text-sm">Al guardar se recalcula el costo neto por unidad de cada producto con sus costos adicionales.</p>
+      <PODocuments poId={id} docs={(docs ?? []) as PODocument[]} />
       <POForm initial={initial} suppliers={opts.counterparties} products={opts.products} />
     </div>
   );

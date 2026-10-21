@@ -160,6 +160,9 @@ export async function savePurchaseOrder(p: POPayload): Promise<ActionState> {
 
 export async function deletePurchaseOrder(id: string): Promise<ActionState> {
   const supabase = await createClient();
+  // Archivos adjuntos de la orden (las filas se borran en cascada con la orden)
+  const { data: docs } = await supabase.from("po_documents").select("file_path").eq("purchase_order_id", id);
+  if (docs?.length) await supabase.storage.from("po-documents").remove(docs.map((d) => d.file_path));
   const { data: lines } = await supabase.from("purchase_order_lines").select("id").eq("purchase_order_id", id);
   const ids = (lines ?? []).map((l) => l.id);
   const steps = [
@@ -355,4 +358,42 @@ export async function deleteCost(id: string): Promise<ActionState> {
   revalidatePath("/compras");
   revalidatePath("/productos");
   done("/compras/costos", "Costo eliminado y costo neto recalculado");
+}
+
+// ===== Envíos a Amazon (traslado de varias unidades desde mi inventario a FBA) =====
+export type ShipmentPayload = {
+  shipment_id: string;
+  date: string;
+  from_location: string;
+  to_location: string;
+  notes: string;
+  lines: { product_id: string; qty: number }[];
+};
+
+export async function createShipment(p: ShipmentPayload): Promise<ActionState> {
+  const lines = p.lines.filter((l) => l.qty > 0);
+  if (!lines.length) return { error: "Indica cuántas unidades envías de al menos un producto." };
+  if (!p.date) return { error: "La fecha es obligatoria." };
+  if (p.from_location === p.to_location) return { error: "El origen y el destino deben ser distintos." };
+
+  const supabase = await createClient();
+  // Valida que haya stock suficiente en el origen
+  const { data: stock } = await supabase.from("inventory_movements").select("product_id, qty")
+    .eq("location", p.from_location).in("product_id", lines.map((l) => l.product_id));
+  const available = new Map<string, number>();
+  for (const m of stock ?? []) available.set(m.product_id, (available.get(m.product_id) ?? 0) + m.qty);
+  const short = lines.find((l) => l.qty > (available.get(l.product_id) ?? 0));
+  if (short) return { error: "Hay productos con más unidades de las disponibles en el origen. Revisa las cantidades." };
+
+  const reference = p.shipment_id ? `Envío ${p.shipment_id}` : "Envío a Amazon";
+  const rows = lines.flatMap((l) => [
+    { product_id: l.product_id, movement: "transfer", qty: -l.qty, location: p.from_location, occurred_on: p.date, reference, notes: p.notes || null },
+    { product_id: l.product_id, movement: "transfer", qty: l.qty, location: p.to_location, occurred_on: p.date, reference, notes: p.notes || null },
+  ]);
+  const { error } = await supabase.from("inventory_movements").insert(rows);
+  if (error) return { error: friendly(error) };
+  revalidatePath("/inventario");
+  revalidatePath("/productos");
+  const total = lines.reduce((a, l) => a + l.qty, 0);
+  done("/inventario", `${reference} registrado: ${total} unidades de ${lines.length} producto${lines.length === 1 ? "" : "s"}`);
 }

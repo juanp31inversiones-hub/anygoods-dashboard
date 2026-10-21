@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Stat } from "@/components/Stat";
 import { CATEGORY_LABELS, money, pct, units } from "@/lib/format";
 import Link from "next/link";
-import { ClipboardCheck, Landmark, Package, ShoppingCart } from "lucide-react";
+import { ClipboardCheck, Landmark, Send, ShoppingCart } from "lucide-react";
 
 const INCOME = ["amazon_payout", "other_sales"];
 const NON_OPERATING = ["capital_contribution", "capital_return", "transfer", "inventory"];
@@ -54,7 +54,7 @@ export default async function Dashboard() {
           { href: "/compras/nueva", label: "Nueva compra", hint: "Registrar una orden a proveedor", icon: ShoppingCart },
           { href: "/inventario/conteo", label: "Dar salida / conteo", hint: "Productos vendidos o que ya no tienes", icon: ClipboardCheck },
           { href: "/banco/nuevo", label: "Registrar pago o ingreso", hint: "Movimiento en Mercury", icon: Landmark },
-          { href: "/productos/nuevo", label: "Nuevo producto", hint: "Con imagen, ASIN y UPC", icon: Package },
+          { href: "/inventario/envio", label: "Enviar a Amazon", hint: "Mover unidades de tu inventario a FBA", icon: Send },
         ].map(({ href, label, hint, icon: Icon }) => (
           <Link key={href} href={href} className="card p-4 flex gap-3 items-start hover:shadow-sm transition-shadow">
             <span className="rounded-lg p-2" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}><Icon size={20} /></span>
