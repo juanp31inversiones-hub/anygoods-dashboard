@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { syncFinances, syncInventory, testConnection } from "@/lib/amazon/sync";
+import { syncFinances, syncInventory, syncPayouts, testConnection } from "@/lib/amazon/sync";
 
 export type SyncResult = { ok: boolean; message: string; complete?: boolean };
 
@@ -13,11 +13,12 @@ async function memberClient() {
   return supabase;
 }
 
-export async function runAmazon(kind: "connection" | "inventory" | "finances"): Promise<SyncResult> {
+export async function runAmazon(kind: "connection" | "inventory" | "finances" | "payouts"): Promise<SyncResult> {
   try {
     const supabase = await memberClient();
     const res = kind === "connection" ? await testConnection(supabase)
       : kind === "inventory" ? await syncInventory(supabase)
+      : kind === "payouts" ? await syncPayouts(supabase)
       : await syncFinances(supabase, 45_000);
     revalidatePath("/amazon");
     return res;

@@ -22,7 +22,7 @@ export function SyncButtons() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
 
-  async function run(kind: "connection" | "inventory" | "finances") {
+  async function run(kind: "connection" | "inventory" | "finances" | "payouts") {
     setBusy(kind);
     setMsg(null);
     if (kind === "finances") {
@@ -33,6 +33,10 @@ export function SyncButtons() {
         router.refresh();
         if (!r.ok || r.complete) break;
       }
+      // Al terminar las ventas, trae también los pagos de Amazon y los cruza con el banco
+      const p = await runAmazon("payouts");
+      setMsg((m) => ({ ok: (m?.ok ?? true) && p.ok, text: `${m?.text ?? ""} · ${p.message}` }));
+      router.refresh();
     } else {
       const r = await runAmazon(kind);
       setMsg({ ok: r.ok, text: r.message });
@@ -51,7 +55,7 @@ export function SyncButtons() {
           <RefreshCw size={16} className={busy === "inventory" ? "animate-spin" : ""} /> Sincronizar inventario FBA
         </button>
         <button className="btn-primary" disabled={!!busy} onClick={() => run("finances")}>
-          <RefreshCw size={16} className={busy === "finances" ? "animate-spin" : ""} /> Sincronizar ventas y fees
+          <RefreshCw size={16} className={busy === "finances" ? "animate-spin" : ""} /> Sincronizar ventas, fees y pagos
         </button>
       </div>
       {busy === "finances" && <p className="muted text-xs">Trayendo historial desde abr-2025 por tramos; puede tardar varios minutos la primera vez. No cierres esta página.</p>}

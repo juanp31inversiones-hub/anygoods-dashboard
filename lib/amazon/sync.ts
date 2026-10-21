@@ -281,3 +281,83 @@ export async function syncFinances(supabase: SupabaseClient, budgetMs = 240_000)
     return { ok: false, complete: false, message: msg };
   }
 }
+
+// ===== Pagos (liquidaciones / settlements) y cruce con el banco =====
+type EventGroup = {
+  FinancialEventGroupId: string; ProcessingStatus?: string; FundTransferStatus?: string;
+  OriginalTotal?: { CurrencyCode?: string; CurrencyAmount?: number }; BeginningBalance?: { CurrencyAmount?: number };
+  FundTransferDate?: string; TraceId?: string; AccountTail?: string;
+  FinancialEventGroupStart?: string; FinancialEventGroupEnd?: string;
+};
+
+export async function syncPayouts(supabase: SupabaseClient) {
+  const finish = await logRun(supabase, "payouts");
+  try {
+    const groups: EventGroup[] = [];
+    let next: string | undefined;
+    do {
+      const res = await spGet<{ payload?: { FinancialEventGroupList?: EventGroup[]; NextToken?: string } }>(
+        "/finances/v0/financialEventGroups",
+        next ? { NextToken: next, MaxResultsPerPage: "100" } : { FinancialEventGroupStartedAfter: "2025-03-01T00:00:00Z", MaxResultsPerPage: "100" },
+      );
+      groups.push(...(res.payload?.FinancialEventGroupList ?? []));
+      next = res.payload?.NextToken;
+      if (next) await sleep(2100);
+    } while (next);
+
+    if (groups.length) {
+      const rows = groups.map((g) => ({
+        group_id: g.FinancialEventGroupId,
+        processing_status: g.ProcessingStatus ?? null,
+        fund_transfer_status: g.FundTransferStatus ?? null,
+        period_start: g.FinancialEventGroupStart ?? null,
+        period_end: g.FinancialEventGroupEnd ?? null,
+        fund_transfer_date: g.FundTransferDate ?? null,
+        amount: g.OriginalTotal?.CurrencyAmount ?? null,
+        currency: g.OriginalTotal?.CurrencyCode ?? null,
+        beginning_balance: g.BeginningBalance?.CurrencyAmount ?? null,
+        trace_id: g.TraceId ?? null,
+        account_tail: g.AccountTail ?? null,
+        synced_at: new Date().toISOString(),
+      }));
+      const { error } = await supabase.from("amazon_payouts").upsert(rows, { onConflict: "group_id" });
+      if (error) throw new Error(error.message);
+    }
+    const matched = await matchPayoutsToBank(supabase);
+    const msg = `${groups.length} liquidaciones de Amazon; ${matched} cruzadas con el banco en esta ejecución`;
+    await finish("ok", groups.length, msg);
+    return { ok: true, message: msg };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await finish("error", 0, msg);
+    return { ok: false, message: msg };
+  }
+}
+
+/** Cruza cada pago de Amazon con el movimiento de Mercury del mismo monto (hasta 10 días después de la transferencia). */
+export async function matchPayoutsToBank(supabase: SupabaseClient) {
+  const [{ data: payouts }, { data: txns }] = await Promise.all([
+    supabase.from("amazon_payouts").select("group_id, amount, fund_transfer_date, period_end").is("bank_transaction_id", null).not("amount", "is", null),
+    supabase.from("bank_transactions").select("id, txn_date, amount, counterparty_id, counterparties(name)"),
+  ]);
+  const { data: linked } = await supabase.from("amazon_payouts").select("bank_transaction_id").not("bank_transaction_id", "is", null);
+  const used = new Set((linked ?? []).map((l) => l.bank_transaction_id));
+  const amazonTxns = ((txns ?? []) as unknown as { id: string; txn_date: string; amount: number; counterparties: { name: string } | null }[])
+    .filter((t) => t.counterparties?.name === "Amazon");
+  let matched = 0;
+  for (const p of payouts ?? []) {
+    const ref = new Date(p.fund_transfer_date ?? p.period_end ?? 0).getTime();
+    if (!ref) continue;
+    const cand = amazonTxns
+      .filter((t) => !used.has(t.id) && Math.abs(Number(t.amount) - Number(p.amount)) < 0.01)
+      .map((t) => ({ t, days: (new Date(t.txn_date + "T12:00:00Z").getTime() - ref) / 86_400_000 }))
+      .filter((c) => c.days >= -3 && c.days <= 10)
+      .sort((a, b) => Math.abs(a.days) - Math.abs(b.days))[0];
+    if (cand) {
+      await supabase.from("amazon_payouts").update({ bank_transaction_id: cand.t.id }).eq("group_id", p.group_id);
+      used.add(cand.t.id);
+      matched++;
+    }
+  }
+  return matched;
+}

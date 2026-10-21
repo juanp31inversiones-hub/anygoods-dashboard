@@ -11,13 +11,14 @@ export const maxDuration = 300;
 const TABS = [
   { key: "rentabilidad", label: "Rentabilidad por producto" },
   { key: "inventario", label: "Inventario FBA" },
+  { key: "pagos", label: "Pagos vs banco" },
   { key: "cargos", label: "Cargos de la cuenta" },
   { key: "skus", label: "SKUs" },
 ];
 const PERIODS = [
   { key: "30", label: "30 días" }, { key: "90", label: "90 días" }, { key: "365", label: "12 meses" }, { key: "all", label: "Todo" },
 ];
-const KIND_LABEL: Record<string, string> = { connection: "Conexión", inventory: "Inventario FBA", finances: "Ventas y fees" };
+const KIND_LABEL: Record<string, string> = { connection: "Conexión", inventory: "Inventario FBA", finances: "Ventas y fees", payouts: "Pagos de Amazon" };
 
 type Ev = { event_type: string; posted_date: string; sku: string | null; quantity: number | null; principal: number; shipping: number;
   promotion: number; fba_fee: number; referral_fee: number; other_fees: number; total: number; description: string | null };
@@ -27,7 +28,7 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
   const supabase = await createClient();
   const since = period === "all" ? "2000-01-01" : new Date(Date.now() - Number(period) * 86_400_000).toISOString();
 
-  const [{ data: runs }, { data: listings }, { data: inv }, { data: events }, { data: products }, { data: stock }, { data: fbaMoves }, { data: state }] = await Promise.all([
+  const [{ data: runs }, { data: listings }, { data: inv }, { data: events }, { data: products }, { data: stock }, { data: fbaMoves }, { data: state }, { data: payouts }, { data: bankAmazon }] = await Promise.all([
     supabase.from("amazon_sync_runs").select("kind, status, message, started_at, finished_at").order("started_at", { ascending: false }).limit(30),
     supabase.from("amazon_listings").select("sku, asin, fnsku, title, product_id").order("title"),
     supabase.from("amazon_inventory").select("*"),
@@ -36,6 +37,8 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
     supabase.from("v_inventory_on_hand").select("product_id, fba_unit_cost"),
     supabase.from("inventory_movements").select("product_id, qty").eq("location", "amazon_fba"),
     supabase.from("amazon_sync_state").select("value").eq("key", "finances").maybeSingle(),
+    supabase.from("amazon_payouts").select("group_id, processing_status, fund_transfer_status, period_start, period_end, fund_transfer_date, amount, account_tail, bank:bank_transactions(txn_date, description, amount)").order("period_end", { ascending: false }),
+    supabase.from("bank_transactions").select("id, txn_date, description, amount, counterparties!inner(name)").eq("counterparties.name", "Amazon").order("txn_date", { ascending: false }),
   ]);
 
   const missing = missingCredentials();
@@ -60,8 +63,8 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
 
       <section className="card p-5 space-y-4">
         <SyncButtons />
-        <div className="grid sm:grid-cols-3 gap-3">
-          {(["connection", "inventory", "finances"] as const).map((k) => {
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {(["connection", "inventory", "finances", "payouts"] as const).map((k) => {
             const r = lastBy(k);
             return (
               <div key={k} className="rounded-lg p-3 text-sm" style={{ background: "var(--bg)" }}>
@@ -105,6 +108,7 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
 
       {tab === "rentabilidad" && <Profitability evs={evs} productOfSku={productOfSku} productById={productById} costOf={costOf} />}
       {tab === "cargos" && <AccountCharges evs={evs} />}
+      {tab === "pagos" && <Payouts payouts={(payouts ?? []) as unknown as PayoutRow[]} bank={(bankAmazon ?? []) as unknown as BankRow[]} />}
       {tab === "inventario" && (
         <FbaInventory listings={listings ?? []} inv={inv ?? []} productById={productById} fbaMoves={fbaMoves ?? []} />
       )}
@@ -305,6 +309,58 @@ function FbaInventory({ listings, inv, productById, fbaMoves }: {
         </table>
       </section>
       <p className="muted text-xs">“En Amazon (total)” = disponible + reservado + no vendible + en investigación. Cuadrar registra la diferencia como venta en Amazon (si el sistema tiene más) o como ajuste (si Amazon tiene más). Lo que va en camino se gestiona en Envíos FBA.</p>
+    </div>
+  );
+}
+
+type PayoutRow = { group_id: string; processing_status: string | null; fund_transfer_status: string | null; period_start: string | null; period_end: string | null;
+  fund_transfer_date: string | null; amount: number | null; account_tail: string | null; bank: { txn_date: string; description: string; amount: number } | null };
+type BankRow = { id: string; txn_date: string; description: string; amount: number };
+
+function Payouts({ payouts, bank }: { payouts: PayoutRow[]; bank: BankRow[] }) {
+  const d = (v: string | null) => (v ? date(v.slice(0, 10)) : "—");
+  const transferred = payouts.filter((p) => p.fund_transfer_status === "Succeeded" || p.fund_transfer_status === "Transferred");
+  const totalAmazon = transferred.reduce((a, p) => a + Number(p.amount ?? 0), 0);
+  const matched = payouts.filter((p) => p.bank);
+  const missing = transferred.filter((p) => !p.bank && Number(p.amount ?? 0) !== 0);
+  const bankDeposits = bank.filter((b) => Number(b.amount) > 0).reduce((a, b) => a + Number(b.amount), 0);
+  const bankCharges = bank.filter((b) => Number(b.amount) < 0).reduce((a, b) => a + Number(b.amount), 0);
+  return (
+    <div className="space-y-4">
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="card p-4"><div className="muted text-xs uppercase">Transferido por Amazon</div><div className="text-2xl font-semibold mt-1">{money(totalAmazon)}</div><div className="muted text-xs">{transferred.length} liquidaciones</div></div>
+        <div className="card p-4"><div className="muted text-xs uppercase">Depósitos Amazon en Mercury</div><div className="text-2xl font-semibold mt-1">{money(bankDeposits)}</div><div className="muted text-xs">cargos de Amazon al banco: {money(bankCharges)}</div></div>
+        <div className="card p-4"><div className="muted text-xs uppercase">Cruzadas con el banco</div><div className="text-2xl font-semibold mt-1 pos">{matched.length}</div></div>
+        <div className="card p-4"><div className="muted text-xs uppercase">Sin encontrar en el banco</div><div className={`text-2xl font-semibold mt-1 ${missing.length ? "neg" : ""}`}>{missing.length}</div><div className="muted text-xs">{money(missing.reduce((a, p) => a + Number(p.amount ?? 0), 0))}</div></div>
+      </section>
+      <section className="card overflow-x-auto">
+        <table className="data min-w-[900px]">
+          <thead><tr><th>Periodo</th><th>Transferencia</th><th>Estado</th><th>Cuenta</th><th className="num">Monto Amazon</th><th>Movimiento en Mercury</th></tr></thead>
+          <tbody>
+            {payouts.map((p) => (
+              <tr key={p.group_id}>
+                <td className="whitespace-nowrap">{d(p.period_start)} – {d(p.period_end)}</td>
+                <td className="whitespace-nowrap">{d(p.fund_transfer_date)}</td>
+                <td>
+                  {p.processing_status === "Open" ? <Badge tone="warn">Abierta (en curso)</Badge>
+                    : p.fund_transfer_status === "Succeeded" || p.fund_transfer_status === "Transferred" ? <Badge tone="pos">Transferida</Badge>
+                    : <Badge>{p.fund_transfer_status ?? p.processing_status ?? "—"}</Badge>}
+                </td>
+                <td className="muted">{p.account_tail ? `••${p.account_tail}` : "—"}</td>
+                <td className={`num font-medium ${Number(p.amount) < 0 ? "neg" : ""}`}>{money(p.amount)}</td>
+                <td>
+                  {p.bank ? <span className="pos text-sm">✓ {date(p.bank.txn_date)} · {money(p.bank.amount)}</span>
+                    : p.processing_status === "Open" ? <span className="muted text-sm">Aún no se transfiere</span>
+                    : Number(p.amount ?? 0) === 0 ? <span className="muted text-sm">Sin monto</span>
+                    : <span className="neg text-sm">No encontrado en el banco</span>}
+                </td>
+              </tr>
+            ))}
+            {payouts.length === 0 && <tr><td colSpan={6} className="muted">Sincroniza ventas, fees y pagos.</td></tr>}
+          </tbody>
+        </table>
+      </section>
+      <p className="muted text-xs">Cada liquidación se cruza con el movimiento de Amazon en Mercury del mismo monto (hasta 10 días después). Las liquidaciones negativas son cargos de Amazon a tu tarjeta o cuenta cuando el saldo quedó en contra.</p>
     </div>
   );
 }
