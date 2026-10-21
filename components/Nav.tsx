@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, Landmark, LayoutDashboard, LogOut, Package, ShoppingCart, Truck } from "lucide-react";
+import { Boxes, KeyRound, Landmark, LayoutDashboard, LogOut, Package, ShoppingCart, Truck } from "lucide-react";
 
 const LINKS = [
   { href: "/", label: "Resumen", icon: LayoutDashboard },
@@ -47,6 +47,7 @@ export function Sidebar({ email }: { email: string }) {
         <nav className="flex flex-col gap-1"><NavLinks /></nav>
         <form action="/auth/signout" method="post" className="mt-auto px-3 pt-4 border-t text-xs" style={{ borderColor: "var(--border)" }}>
           <div className="muted truncate mb-2">{email}</div>
+          <Link href="/cuenta" className="flex items-center gap-2 muted hover:underline mb-2"><KeyRound size={14} /> Mi cuenta y contraseña</Link>
           <button className="flex items-center gap-2 muted hover:underline"><LogOut size={14} /> Cerrar sesión</button>
         </form>
       </aside>
@@ -55,7 +56,10 @@ export function Sidebar({ email }: { email: string }) {
       <header className="md:hidden sticky top-0 z-10 border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
           <span className="font-semibold">AnyGoods</span>
-          <form action="/auth/signout" method="post"><button aria-label="Cerrar sesión" className="muted"><LogOut size={18} /></button></form>
+          <div className="flex items-center gap-4">
+            <Link href="/cuenta" aria-label="Mi cuenta" className="muted"><KeyRound size={18} /></Link>
+            <form action="/auth/signout" method="post"><button aria-label="Cerrar sesión" className="muted"><LogOut size={18} /></button></form>
+          </div>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-2 py-2"><NavLinks compact /></nav>
       </header>

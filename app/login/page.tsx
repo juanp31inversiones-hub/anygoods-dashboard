@@ -8,7 +8,8 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [step, setStep] = useState<"email" | "code" | "password">("email");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -27,8 +28,27 @@ export default function LoginPage() {
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     });
     setBusy(false);
-    if (error) setError(error.message);
-    else setStep("code");
+    if (error) {
+      setError(
+        /rate limit/i.test(error.message)
+          ? "Se alcanzó el límite de correos por hora. Entra con contraseña o espera unos minutos."
+          : error.message,
+      );
+    } else setStep("code");
+  }
+
+  async function signInWithPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const { error } = await createClient().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    setBusy(false);
+    if (error) {
+      setError("Correo o contraseña incorrectos. Si aún no tienes contraseña, entra con código y créala en Mi cuenta.");
+      return;
+    }
+    router.replace("/");
+    router.refresh();
   }
 
   async function verifyCode(e: React.FormEvent) {
@@ -58,7 +78,18 @@ export default function LoginPage() {
         <h1 className="text-xl font-semibold">AnyGoods Dashboard</h1>
         <p className="muted text-sm mt-1">Acceso solo para usuarios autorizados.</p>
 
-        {step === "email" ? (
+        {step === "password" ? (
+          <form onSubmit={signInWithPassword} className="mt-6 space-y-3">
+            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@correo.com"
+              className={input} style={{ borderColor: "var(--border)" }} />
+            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña"
+              autoComplete="current-password" className={input} style={{ borderColor: "var(--border)" }} />
+            <button disabled={busy} className={button} style={{ background: "var(--accent)" }}>{busy ? "Entrando…" : "Entrar"}</button>
+            <button type="button" onClick={() => { setStep("email"); setError(""); }} className="muted text-sm underline w-full">
+              No tengo contraseña: entrar con código por correo
+            </button>
+          </form>
+        ) : step === "email" ? (
           <form onSubmit={sendCode} className="mt-6 space-y-3">
             <input
               type="email"
@@ -71,6 +102,9 @@ export default function LoginPage() {
             />
             <button disabled={busy} className={button} style={{ background: "var(--accent)" }}>
               {busy ? "Enviando…" : "Enviar código de acceso"}
+            </button>
+            <button type="button" onClick={() => { setStep("password"); setError(""); }} className="muted text-sm underline w-full">
+              Entrar con contraseña
             </button>
           </form>
         ) : (
