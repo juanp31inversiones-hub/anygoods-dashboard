@@ -1,0 +1,7 @@
+-- Cierre de inventario (21-oct-2026), confirmado por los socios:
+-- * Productos de 2025 y Cherie Sweet: lo que quedaba en el sistema se vendió en Amazon antes de usar la plataforma.
+--   Se registran salidas 'sale' (referencia "Ventas Amazon no registradas"); productos de 2025 quedan inactivos.
+-- * Cherie Sweet / PO1012 y PO1014: pago de $288 = $270 PO1012 + $18 saldo a favor aplicado a PO1014
+--   (otro producto pedido por error y cancelado con el proveedor).
+-- * Cleaning Heroes Oven & Grill (PO1016): no despachado; la compra queda en el almacén del proveedor.
+-- Estado resultante: Cleaning Heroes Alcohol 712 proveedor + 198 FBA; Oven & Grill 210 proveedor.
