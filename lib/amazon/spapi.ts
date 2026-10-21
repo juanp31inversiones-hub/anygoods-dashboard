@@ -14,6 +14,29 @@ export function missingCredentials(): string[] {
   return ["SPAPI_CLIENT_ID", "SPAPI_CLIENT_SECRET", "SPAPI_REFRESH_TOKEN"].filter((k) => !process.env[k]);
 }
 
+/** Revisa el formato de las credenciales sin revelar su valor. */
+export function credentialDiagnostics(): string[] {
+  const issues: string[] = [];
+  const raw = {
+    id: process.env.SPAPI_CLIENT_ID ?? "",
+    secret: process.env.SPAPI_CLIENT_SECRET ?? "",
+    token: process.env.SPAPI_REFRESH_TOKEN ?? "",
+  };
+  const v = { id: raw.id.trim(), secret: raw.secret.trim(), token: raw.token.trim() };
+  const quoted = (x: string) => /^["']|["']$/.test(x);
+  const shape = (x: string) => `empieza por "${x.slice(0, 6)}…", ${x.length} caracteres`;
+  if (v.id.startsWith("amzn1.sp.solution")) issues.push("SPAPI_CLIENT_ID tiene el App ID (amzn1.sp.solution…). Debe ser el Client identifier de las credenciales LWA (amzn1.application-oa2-client…).");
+  else if (!v.id.startsWith("amzn1.application-oa2-client.")) issues.push(`SPAPI_CLIENT_ID no tiene el formato esperado (amzn1.application-oa2-client.…): ${shape(v.id)}.`);
+  if (v.secret.startsWith("amzn1.application-oa2-client.")) issues.push("SPAPI_CLIENT_SECRET contiene el Client ID: parecen intercambiados.");
+  else if (!v.secret.startsWith("amzn1.oa2-cs.v1.")) issues.push(`SPAPI_CLIENT_SECRET no tiene el formato esperado (amzn1.oa2-cs.v1.…): ${shape(v.secret)}.`);
+  if (!v.token.startsWith("Atzr|")) issues.push(`SPAPI_REFRESH_TOKEN no empieza por "Atzr|": ${shape(v.token)}.`);
+  for (const [k, x] of Object.entries(raw)) {
+    if (quoted(x.trim())) issues.push(`La variable ${k === "id" ? "SPAPI_CLIENT_ID" : k === "secret" ? "SPAPI_CLIENT_SECRET" : "SPAPI_REFRESH_TOKEN"} tiene comillas: quítalas.`);
+    if (/\s/.test(x.trim())) issues.push(`La variable ${k === "id" ? "SPAPI_CLIENT_ID" : k === "secret" ? "SPAPI_CLIENT_SECRET" : "SPAPI_REFRESH_TOKEN"} tiene espacios o saltos de línea en medio.`);
+  }
+  return issues;
+}
+
 let cached: { token: string; expires: number } | null = null;
 
 async function accessToken(): Promise<string> {
@@ -33,8 +56,15 @@ async function accessToken(): Promise<string> {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body.access_token) {
+    const diag = credentialDiagnostics();
+    const cause = body.error === "invalid_client"
+      ? "Amazon no reconoce el Client ID + Client Secret (el Refresh Token no es el problema)."
+      : body.error === "invalid_grant"
+        ? "El Refresh Token no es válido para este Client ID (vuelve a autorizar la app y copia el nuevo token)."
+        : "";
     throw new SpApiError(
-      `Amazon rechazó las credenciales (${res.status}): ${body.error_description ?? body.error ?? "sin detalle"}. Revisa Client ID, Client Secret y Refresh Token en Vercel.`,
+      `Amazon rechazó las credenciales (${res.status} ${body.error ?? ""}): ${body.error_description ?? "sin detalle"}. ${cause} ` +
+      (diag.length ? `Diagnóstico: ${diag.join(" ")}` : "El formato de las 3 variables se ve correcto; vuelve a copiar el Client Secret desde Seller Central (puede haberse copiado incompleto o haber sido regenerado)."),
       res.status, body,
     );
   }
