@@ -5,9 +5,10 @@ import { BackLink } from "@/components/ui";
 export default async function Conteo({ searchParams }: { searchParams: Promise<{ product?: string }> }) {
   const { product } = await searchParams;
   const supabase = await createClient();
-  const [{ data: moves }, { data: products }] = await Promise.all([
+  const [{ data: moves }, { data: products }, { data: receivers }] = await Promise.all([
     supabase.from("inventory_movements").select("product_id, location, qty"),
     supabase.from("v_inventory_on_hand").select("product_id, description, asin, image_url, avg_cost"),
+    supabase.from("counterparties").select("id, name").in("kind", ["supplier", "brand", "other", "partner"]).order("name"),
   ]);
 
   const byKey = new Map<string, number>();
@@ -34,7 +35,7 @@ export default async function Conteo({ searchParams }: { searchParams: Promise<{
         <h1 className="text-2xl font-semibold">{product ? "Dar salida a un producto" : "Conteo y salidas de inventario"}</h1>
         <p className="muted text-sm">Ajusta el sistema a lo que realmente tienes.</p>
       </div>
-      <StockCount rows={rows} focus={product} />
+      <StockCount rows={rows} focus={product} receivers={receivers ?? []} />
     </div>
   );
 }

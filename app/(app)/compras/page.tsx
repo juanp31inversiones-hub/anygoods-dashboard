@@ -26,6 +26,12 @@ export default async function Compras({ searchParams }: {
 }) {
   const { q = "", supplier = "", status = "", year = "" } = await searchParams;
   const supabase = await createClient();
+  const { data: statusRows } = await supabase.from("v_po_payment_status").select("purchase_order_id, total, paid");
+  const payStatus = new Map((statusRows ?? []).map((r) => [r.purchase_order_id as string, { total: Number(r.total), paid: Number(r.paid) }]));
+  const balanceOf = (id: string) => {
+    const st = payStatus.get(id);
+    return st ? Math.round((st.total - st.paid) * 100) / 100 : 0;
+  };
   const { data } = await supabase
     .from("purchase_orders")
     .select(
@@ -54,6 +60,8 @@ export default async function Compras({ searchParams }: {
   const totNet = rows.reduce((a, p) => a + net(p), 0);
   const totExtra = rows.reduce((a, p) => a + extra(p), 0);
   const totUnits = rows.reduce((a, p) => a + unitsOf(p), 0);
+  const toPay = rows.reduce((a, p) => a + Math.max(0, balanceOf(p.id)), 0);
+  const withBalance = rows.filter((p) => balanceOf(p.id) > 0.009).length;
   const missingDocs = rows.filter((p) => !p.po_documents.some((d) => d.doc_type === "supplier_invoice") || !p.po_documents.some((d) => d.doc_type === "payment_proof")).length;
   const filtered = !!(q || supplier || status || year);
 
@@ -70,8 +78,8 @@ export default async function Compras({ searchParams }: {
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4"><div className="muted text-xs uppercase tracking-wide">Compras</div><div className="text-2xl font-semibold mt-1">{rows.length}</div><div className="muted text-xs">{units(totUnits)} unidades</div></div>
-        <div className="card p-4"><div className="muted text-xs uppercase tracking-wide">Compra neta</div><div className="text-2xl font-semibold mt-1 tabular-nums">{money(totNet)}</div></div>
-        <div className="card p-4"><div className="muted text-xs uppercase tracking-wide">+ Costos del proveedor</div><div className="text-2xl font-semibold mt-1 tabular-nums">{money(totExtra)}</div><div className="muted text-xs">{totNet ? `${((totExtra / totNet) * 100).toFixed(1)}% sobre la compra` : ""}</div></div>
+        <div className="card p-4"><div className="muted text-xs uppercase tracking-wide">Compra neta + costos</div><div className="text-2xl font-semibold mt-1 tabular-nums">{money(totNet + totExtra)}</div><div className="muted text-xs">{money(totNet)} + {money(totExtra)} de costos del proveedor</div></div>
+        <div className="card p-4"><div className="muted text-xs uppercase tracking-wide">Por pagar a proveedores</div><div className={`text-2xl font-semibold mt-1 tabular-nums ${toPay ? "neg" : ""}`}>{money(toPay)}</div><div className="muted text-xs">{withBalance} compra{withBalance === 1 ? "" : "s"} con saldo</div></div>
         <div className="card p-4"><div className="muted text-xs uppercase tracking-wide">Documentos pendientes</div><div className={`text-2xl font-semibold mt-1 ${missingDocs ? "neg" : ""}`}>{missingDocs}</div><div className="muted text-xs">compras sin invoice o sin pago</div></div>
       </section>
 
@@ -97,12 +105,12 @@ export default async function Compras({ searchParams }: {
       </form>
 
       <section className="card overflow-x-auto">
-        <table className="data min-w-[1050px]">
+        <table className="data min-w-[1150px]">
           <thead>
             <tr>
               <th>Fecha</th><th>PO</th><th>Factura</th><th>Proveedor</th><th>Productos</th>
               <th className="num">Unidades</th><th className="num">Compra neta</th><th className="num">Costos</th><th className="num">Total</th>
-              <th>Documentos</th><th>Estado</th>
+              <th className="num">Saldo</th><th>Documentos</th><th>Estado</th>
             </tr>
           </thead>
           <tbody>
@@ -132,6 +140,9 @@ export default async function Compras({ searchParams }: {
                   <td className="num">{money(net(po))}</td>
                   <td className="num muted">{extra(po) ? money(extra(po)) : "—"}</td>
                   <td className="num font-semibold">{money(net(po) + extra(po))}</td>
+                  <td className="num whitespace-nowrap">
+                    {balanceOf(po.id) > 0.009 ? <span className="neg font-medium">{money(balanceOf(po.id))}</span> : <Badge tone="pos">Pagada</Badge>}
+                  </td>
                   <td>
                     <span className="flex gap-2 text-xs whitespace-nowrap">
                       {DOCS.map(([t, l]) => {
@@ -148,7 +159,7 @@ export default async function Compras({ searchParams }: {
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={11} className="muted">{filtered ? "No hay compras con esos filtros." : "Aún no hay compras."}</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={12} className="muted">{filtered ? "No hay compras con esos filtros." : "Aún no hay compras."}</td></tr>}
           </tbody>
           {rows.length > 1 && (
             <tfoot>
@@ -158,6 +169,7 @@ export default async function Compras({ searchParams }: {
                 <td className="num">{money(totNet)}</td>
                 <td className="num">{money(totExtra)}</td>
                 <td className="num">{money(totNet + totExtra)}</td>
+                <td className="num neg">{toPay ? money(toPay) : ""}</td>
                 <td colSpan={2} />
               </tr>
             </tfoot>

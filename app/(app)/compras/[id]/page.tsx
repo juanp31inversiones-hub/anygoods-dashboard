@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { formOptions } from "@/lib/queries";
 import { POForm } from "@/components/POForm";
 import { PODocuments, type PODocument } from "@/components/PODocuments";
+import { POPayments, type Payment } from "@/components/POPayments";
 import { DeleteButton } from "@/components/forms";
 import { BackLink } from "@/components/ui";
 import { deletePurchaseOrder, type POPayload } from "@/lib/actions";
@@ -28,6 +29,16 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
     : { data: [] };
   const arrivalOf = new Map((arrivals ?? []).map((a) => [a.po_line_id as string, a.location as string]));
   const stock = Object.fromEntries(stockRows.map((r) => [r.product_id, r.stock]));
+
+  // Pagos de la compra
+  const [{ data: payments }, { data: status }, { data: txns }] = await Promise.all([
+    supabase.from("po_payments").select("id, paid_on, amount, method, notes, paid_by:counterparties(name), bank:bank_transactions(txn_date, description)")
+      .eq("purchase_order_id", id).order("paid_on"),
+    supabase.from("v_po_payment_status").select("total").eq("purchase_order_id", id).single(),
+    supabase.from("bank_transactions").select("id, txn_date, description, amount, purchase_order_id").lt("amount", 0)
+      .or(`purchase_order_id.is.null,purchase_order_id.eq.${id}`).order("txn_date", { ascending: false }).limit(200),
+  ]);
+  const agents = opts.counterparties.filter((c) => c.kind !== "service" && c.kind !== "marketplace");
 
   const initial: POPayload = {
     id: po.id,
@@ -59,6 +70,13 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
       </div>
       <p className="muted text-sm">Al guardar se recalcula el costo neto por unidad de cada producto con sus costos adicionales.</p>
       <PODocuments poId={id} docs={(docs ?? []) as PODocument[]} />
+      <POPayments
+        poId={id}
+        total={Number(status?.total ?? 0)}
+        payments={(payments ?? []) as unknown as Payment[]}
+        agents={agents}
+        transactions={(txns ?? []).map((t) => ({ id: t.id, name: `${t.txn_date} · ${t.description} · $${Math.abs(Number(t.amount)).toFixed(2)}` }))}
+      />
       <POForm initial={initial} suppliers={opts.counterparties.filter((c) => SUPPLIER_KINDS.includes(c.kind) || c.id === po.supplier_id || c.id === po.paid_via_id)} products={opts.products} stock={stock} />
     </div>
   );

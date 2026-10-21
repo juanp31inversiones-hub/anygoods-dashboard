@@ -122,3 +122,18 @@ export const CHARGED_TO_LABELS: Record<string, string> = {
   bank: "Pagado desde el banco",
   card: "Pagado con tarjeta",
 };
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  bank: "Banco (transferencia)",
+  card: "Tarjeta",
+  third_party: "Pagado por un tercero",
+  credit_note: "Nota crédito / saldo a favor",
+  other: "Otro",
+};
+
+export const AGENT_ENTRY_LABELS: Record<string, string> = {
+  liquidation: "Liquidación cobrada a nuestro favor",
+  other_income: "Otro dinero cobrado a nuestro favor",
+  fee: "Cobro / comisión del tercero",
+  adjustment: "Ajuste",
+};

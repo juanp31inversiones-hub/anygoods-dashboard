@@ -284,7 +284,8 @@ export type StockCountPayload = {
   reason: string;
   notes: string;
   deactivate: boolean;
-  entries: { product_id: string; location: string; diff: number }[];
+  collected_by?: string; // tercero que cobró la venta/liquidación por nosotros
+  entries: { product_id: string; location: string; diff: number; unit_price?: number | null }[];
 };
 
 const EXIT_REASONS = new Set(["sale", "liquidation", "damaged", "removal", "adjustment"]);
@@ -304,11 +305,25 @@ export async function applyStockCount(p: StockCountPayload): Promise<ActionState
     // Las salidas toman el motivo elegido; si sobran unidades es un ajuste positivo.
     movement: e.diff < 0 ? p.reason : "adjustment",
     occurred_on: p.date,
-    reference: "Conteo de inventario",
+    reference: p.reason === "liquidation" ? "Liquidación" : p.reason === "sale" ? "Venta" : "Conteo de inventario",
+    unit_price: e.diff < 0 && e.unit_price != null ? e.unit_price : null,
+    channel: p.reason === "liquidation" ? "liquidacion" : null,
     notes: p.notes || null,
   }));
   const { error } = await supabase.from("inventory_movements").insert(rows);
   if (error) return { error: friendly(error) };
+
+  // Venta o liquidación cobrada por un tercero: queda como dinero nuestro en su poder
+  const proceeds = entries.reduce((a, e) => a + (e.diff < 0 && e.unit_price ? -e.diff * e.unit_price : 0), 0);
+  if (p.collected_by && proceeds > 0) {
+    const units = entries.reduce((a, e) => a + (e.diff < 0 ? -e.diff : 0), 0);
+    const { error: aeErr } = await supabase.from("agent_entries").insert({
+      counterparty_id: p.collected_by, entry_date: p.date, kind: p.reason === "liquidation" ? "liquidation" : "other_income",
+      amount: Math.round(proceeds * 100) / 100,
+      description: `${p.reason === "liquidation" ? "Liquidación" : "Venta"} de ${units} und cobrada a nuestro favor${p.notes ? ` · ${p.notes}` : ""}`,
+    });
+    if (aeErr) return { error: friendly(aeErr) };
+  }
 
   let deactivated = 0;
   if (p.deactivate) {
@@ -528,5 +543,68 @@ export async function setCounterpartyKind(id: string, kind: string): Promise<Act
   if (error) return { error: friendly(error) };
   revalidatePath("/proveedores");
   revalidatePath("/compras");
+  return undefined;
+}
+
+// ===== Pagos de compras =====
+export async function savePayment(_: ActionState, fd: FormData): Promise<ActionState> {
+  const supabase = await createClient();
+  const poId = str(fd, "purchase_order_id");
+  const method = str(fd, "method") ?? "bank";
+  const row = {
+    purchase_order_id: poId,
+    paid_on: str(fd, "paid_on"),
+    amount: num(fd, "amount"),
+    method,
+    paid_by_id: method === "third_party" ? str(fd, "paid_by_id") : null,
+    bank_transaction_id: method === "bank" || method === "card" ? str(fd, "bank_transaction_id") : null,
+    notes: str(fd, "notes"),
+  };
+  if (!poId || !row.paid_on || !row.amount || row.amount <= 0) return { error: "Fecha y monto (mayor a 0) son obligatorios." };
+  if (method === "third_party" && !row.paid_by_id) return { error: "Indica qué tercero hizo el pago." };
+  const { error } = await supabase.from("po_payments").insert(row);
+  if (error) return { error: friendly(error) };
+  // El movimiento del banco queda vinculado a la compra
+  if (row.bank_transaction_id) await supabase.from("bank_transactions").update({ purchase_order_id: poId }).eq("id", row.bank_transaction_id);
+  revalidatePath(`/compras/${poId}`);
+  revalidatePath("/compras");
+  revalidatePath("/proveedores");
+  return { id: "ok" };
+}
+
+export async function deletePayment(id: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("po_payments").select("purchase_order_id, bank_transaction_id").eq("id", id).single();
+  const { error } = await supabase.from("po_payments").delete().eq("id", id);
+  if (error) return { error: friendly(error) };
+  if (data?.bank_transaction_id) await supabase.from("bank_transactions").update({ purchase_order_id: null }).eq("id", data.bank_transaction_id);
+  if (data) revalidatePath(`/compras/${data.purchase_order_id}`);
+  revalidatePath("/compras");
+  return undefined;
+}
+
+// ===== Cuenta con terceros (dinero nuestro que cobran o manejan) =====
+export async function saveAgentEntry(_: ActionState, fd: FormData): Promise<ActionState> {
+  const supabase = await createClient();
+  const cp = str(fd, "counterparty_id");
+  const kind = str(fd, "kind") ?? "liquidation";
+  const amount = num(fd, "amount");
+  if (!cp || !amount || !str(fd, "entry_date")) return { error: "Fecha y monto son obligatorios." };
+  const { error } = await supabase.from("agent_entries").insert({
+    counterparty_id: cp, entry_date: str(fd, "entry_date"), kind,
+    amount: kind === "fee" ? -Math.abs(amount) : amount, description: str(fd, "description"),
+  });
+  if (error) return { error: friendly(error) };
+  revalidatePath(`/proveedores/${cp}`);
+  revalidatePath("/");
+  return { id: "ok" };
+}
+
+export async function deleteAgentEntry(id: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("agent_entries").select("counterparty_id").eq("id", id).single();
+  const { error } = await supabase.from("agent_entries").delete().eq("id", id);
+  if (error) return { error: friendly(error) };
+  if (data) revalidatePath(`/proveedores/${data.counterparty_id}`);
   return undefined;
 }

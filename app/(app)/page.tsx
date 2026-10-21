@@ -121,18 +121,23 @@ export default async function Dashboard() {
 
       {(agents.data ?? []).length > 0 && (
         <section className="card overflow-x-auto">
-          <h2 className="font-semibold px-4 pt-4">Capital administrado por terceros</h2>
+          <h2 className="font-semibold px-4 pt-4">Dinero nuestro en manos de terceros</h2>
+          <p className="muted text-xs px-4">Depositado + cobrado a nuestro favor − pagado por nosotros − devuelto = lo que el tercero aún tiene nuestro.</p>
           <table className="data mt-2">
-            <thead><tr><th>Tercero</th><th className="num">Depositado</th><th className="num">Compras registradas</th><th className="num">Sin justificar</th></tr></thead>
+            <thead>
+              <tr><th>Tercero</th><th className="num">Depositado</th><th className="num">+ Cobrado a favor</th><th className="num">− Pagado por nosotros</th><th className="num">− Devuelto</th><th className="num">= Saldo que tienen</th></tr>
+            </thead>
             <tbody>
               {(agents.data ?? []).map((a) => {
-                const gap = Number(a.deposited) - Number(a.spent_on_purchases);
+                const balance = Number(a.deposited) + Number(a.collected_for_us ?? 0) - Number(a.spent_on_purchases) - Number(a.returned_to_us ?? 0);
                 return (
                   <tr key={a.agent}>
-                    <td>{a.agent}</td>
+                    <td><Link href={`/proveedores/${a.counterparty_id}`} className="link">{a.agent}</Link></td>
                     <td className="num">{money(a.deposited)}</td>
+                    <td className="num">{money(a.collected_for_us)}</td>
                     <td className="num">{money(a.spent_on_purchases)}</td>
-                    <td className={`num ${gap > 1 ? "neg" : ""}`}>{money(gap)}</td>
+                    <td className="num">{money(a.returned_to_us)}</td>
+                    <td className={`num font-semibold ${balance > 1 ? "neg" : ""}`}>{money(balance)}</td>
                   </tr>
                 );
               })}

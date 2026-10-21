@@ -19,7 +19,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   const [all, { data: moves }] = await Promise.all([
     stockByLocation(supabase, false),
     supabase.from("inventory_movements")
-      .select("id, movement, qty, location, occurred_on, reference, notes, fba_shipment_id, products(id, description)")
+      .select("id, movement, qty, location, occurred_on, reference, notes, unit_price, fba_shipment_id, products(id, description)")
       .neq("movement", "purchase").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(60),
   ]);
   const withStock = all.filter((r) => Number(r.units_on_hand) !== 0);
@@ -29,7 +29,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   const totalsByLoc = Object.fromEntries(usedLocations.map((loc) => [loc, withStock.reduce((a, r) => a + (r.stock[loc] ?? 0), 0)]));
   const totalValue = withStock.reduce((a, r) => a + Number(r.inventory_value), 0);
 
-  type M = { id: string; fba_shipment_id: string | null; movement: string; qty: number; location: string; occurred_on: string; reference: string | null; notes: string | null; products: { id: string; description: string } | null };
+  type M = { id: string; fba_shipment_id: string | null; unit_price: number | null; movement: string; qty: number; location: string; occurred_on: string; reference: string | null; notes: string | null; products: { id: string; description: string } | null };
 
   return (
     <div className="space-y-6">
@@ -132,6 +132,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
                 <td>{LOCATION_LABELS[m.location] ?? m.location}</td>
                 <td className="muted">
                   {m.fba_shipment_id ? <Link href={`/envios/${m.fba_shipment_id}`} className="link">{m.reference}</Link> : m.reference}
+                  {m.unit_price != null && <span className="font-medium" style={{ color: "var(--text)" }}> · {money(m.unit_price)}/u = {money(Math.abs(m.qty) * Number(m.unit_price))}</span>}
                   {m.notes ? ` · ${m.notes}` : ""}
                 </td>
                 <td className={`num ${m.qty < 0 ? "neg" : "pos"}`}>{m.qty > 0 ? "+" : ""}{units(m.qty)}</td>

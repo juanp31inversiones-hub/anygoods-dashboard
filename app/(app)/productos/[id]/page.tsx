@@ -18,7 +18,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
     supabase.from("purchase_order_lines")
       .select("id, units, unit_cost, landed_unit_cost, purchase_orders(id, invoice_number, purchase_date, counterparties!purchase_orders_supplier_id_fkey(name))")
       .eq("product_id", id),
-    supabase.from("inventory_movements").select("id, movement, qty, location, occurred_on, reference, notes").eq("product_id", id).order("occurred_on", { ascending: false }),
+    supabase.from("inventory_movements").select("id, movement, qty, location, occurred_on, reference, notes, unit_price").eq("product_id", id).order("occurred_on", { ascending: false }),
   ]);
   if (!product) notFound();
   const lineIds = (lines ?? []).map((l) => l.id as string);
@@ -89,7 +89,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
                 <td>{date(m.occurred_on)}</td>
                 <td>{MOVEMENT_LABELS[m.movement] ?? m.movement}</td>
                 <td>{LOCATION_LABELS[m.location] ?? m.location}</td>
-                <td className="muted">{m.reference}{m.notes ? ` · ${m.notes}` : ""}</td>
+                <td className="muted">{m.reference}{m.unit_price != null ? ` · ${money(m.unit_price)}/u` : ""}{m.notes ? ` · ${m.notes}` : ""}</td>
                 <td className={`num ${m.qty < 0 ? "neg" : "pos"}`}>{m.qty > 0 ? "+" : ""}{units(m.qty)}</td>
               </tr>
             ))}
