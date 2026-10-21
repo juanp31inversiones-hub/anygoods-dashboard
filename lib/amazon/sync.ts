@@ -256,7 +256,7 @@ export function parseFinancialEvents(fe: Record<string, unknown[]>, windowEnd: s
 
 type FinState = { window_start: string; next_token?: string | null; done_until?: string; seq?: number; v?: number };
 /** Versión del formato de IDs: si cambia, se vuelve a traer todo el historial. */
-const FIN_VERSION = 2;
+const FIN_VERSION = 3;
 
 /**
  * Trae eventos financieros por ventanas de 90 días desde abr-2025, con límite de tiempo por ejecución.
@@ -281,9 +281,10 @@ export async function syncFinances(supabase: SupabaseClient, budgetMs = 240_000)
       const end = new Date(Math.min(start.getTime() + WINDOW_DAYS * 86_400_000, nowSafe.getTime()));
       if (!state.next_token) {
         // Ventana nueva: se rehacen sus cargos y ajustes (los IDs dependen del orden), las ventas tienen ID estable.
+        // Estrictamente después del inicio: los cargos de la ventana anterior quedan fechados justo en ese límite.
         state.seq = 0;
         const { error: delErr } = await supabase.from("amazon_financial_events").delete()
-          .in("event_type", ["adjustment", "service_fee", "other"]).gte("posted_date", start.toISOString()).lte("posted_date", end.toISOString());
+          .in("event_type", ["adjustment", "service_fee", "other"]).gt("posted_date", start.toISOString()).lte("posted_date", end.toISOString());
         if (delErr) throw new Error(delErr.message);
       }
       const res = await spGet<{ payload?: { FinancialEvents?: Record<string, unknown[]>; NextToken?: string } }>(
