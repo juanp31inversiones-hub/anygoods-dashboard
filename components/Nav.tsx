@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
-import { Boxes, KeyRound, Landmark, LayoutDashboard, LogOut, Package, Send, ShoppingCart, Truck } from "lucide-react";
+import { Boxes, KeyRound, Landmark, LayoutDashboard, LogOut, Package, Send, ShoppingCart, Store, Truck } from "lucide-react";
 
 const LINKS = [
   { href: "/", label: "Resumen", icon: LayoutDashboard },
   { href: "/inventario", label: "Inventario", icon: Boxes },
   { href: "/envios", label: "Envíos FBA", icon: Send },
+  { href: "/amazon", label: "Amazon", icon: Store },
   { href: "/productos", label: "Productos", icon: Package },
   { href: "/compras", label: "Compras", icon: ShoppingCart },
   { href: "/banco", label: "Banco", icon: Landmark },
