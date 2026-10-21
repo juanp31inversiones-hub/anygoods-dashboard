@@ -15,6 +15,14 @@ export async function middleware(request: NextRequest) {
     },
   });
 
+  // Si Supabase redirige a la Site URL con ?code=, lo enviamos al callback.
+  const code = request.nextUrl.searchParams.get("code");
+  if (code && !request.nextUrl.pathname.startsWith("/auth")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth/callback";
+    return NextResponse.redirect(url);
+  }
+
   const { data: { user } } = await supabase.auth.getUser();
   const isPublic = request.nextUrl.pathname.startsWith("/login") || request.nextUrl.pathname.startsWith("/auth");
   if (!user && !isPublic) {
