@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { saveCost, type ActionState } from "@/lib/actions";
-import { COST_TYPE_LABELS } from "@/lib/format";
+import { PO_COST_TYPE_LABELS } from "@/lib/format";
 import { Field } from "@/components/ui";
 import { FormError, SubmitButton } from "@/components/forms";
 
@@ -43,8 +43,8 @@ export function CostForm({ cost, purchaseOrders, counterparties, transactions, d
         </select>
       </Field>
       <Field label="Tipo de costo *">
-        <select name="cost_type" required defaultValue={cost?.cost_type ?? "amazon_inbound"} className="input">
-          {Object.entries(COST_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        <select name="cost_type" required defaultValue={cost?.cost_type ?? "supplier_shipping"} className="input">
+          {Object.entries(PO_COST_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </Field>
       <Field label="Monto (USD) *" hint="Para descuentos escribe el monto en positivo: se resta automáticamente.">

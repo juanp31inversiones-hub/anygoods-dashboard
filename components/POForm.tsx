@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
 import { savePurchaseOrder, type POCost, type POLine, type POPayload } from "@/lib/actions";
-import { COST_TYPE_LABELS, LOCATION_LABELS, STATUS_LABELS, money } from "@/lib/format";
+import { LOCATION_LABELS, PO_COST_TYPE_LABELS, STATUS_LABELS, money } from "@/lib/format";
 import { Field } from "@/components/ui";
 
 type Option = { id: string; name: string };
@@ -14,7 +14,7 @@ const EMPTY_LINE: POLine = { product_id: "", cases: "", units: "", unit_cost: ""
 /** Los descuentos se escriben en positivo y siempre restan. */
 const signed = (c: POCost) => (c.cost_type === "supplier_discount" ? -Math.abs(Number(c.amount || 0)) : Number(c.amount || 0));
 
-const emptyCost = (): POCost => ({ cost_type: "amazon_inbound", description: "", amount: "", product_id: "", allocation: "units", cost_date: "", counterparty_id: "" });
+const emptyCost = (): POCost => ({ cost_type: "supplier_shipping", description: "", amount: "", product_id: "", allocation: "units", cost_date: "", counterparty_id: "" });
 
 /** Reparte cada costo entre las líneas (igual que v_line_costs en la base de datos). */
 export function allocateCosts(lines: POLine[], costs: POCost[]) {
@@ -168,7 +168,7 @@ export function POForm({ initial, suppliers, products }: {
         <div className="flex items-center justify-between px-4 pt-4">
           <div>
             <h2 className="font-semibold">2. Costos adicionales</h2>
-            <p className="muted text-xs">Transporte, envío a Amazon, placement, prep, aranceles, descuentos… Se suman al costo del producto.</p>
+            <p className="muted text-xs">Transporte del proveedor, prep, aranceles, descuentos… Los costos de Amazon (envío y placement) se registran en Envíos FBA.</p>
           </div>
           <button type="button" className="btn-ghost text-xs" onClick={() => setPo((p) => ({ ...p, costs: [...p.costs, emptyCost()] }))}>
             <Plus size={14} /> Agregar costo
@@ -184,7 +184,7 @@ export function POForm({ initial, suppliers, products }: {
                 <tr key={i}>
                   <td className="w-48">
                     <select value={c.cost_type} onChange={(e) => setCost(i, { cost_type: e.target.value })} className="input">
-                      {Object.entries(COST_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      {Object.entries(PO_COST_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                     </select>
                   </td>
                   <td><input value={c.description} onChange={(e) => setCost(i, { description: e.target.value })} placeholder="Ej. Factura UPS, envío FBA15…" className="input" /></td>

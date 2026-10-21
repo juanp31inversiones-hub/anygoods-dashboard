@@ -22,6 +22,7 @@ export default async function Costos({ searchParams }: { searchParams: Promise<{
   let q = supabase
     .from("additional_costs")
     .select("id, cost_type, description, amount, allocation, cost_date, products(description), counterparties(name), purchase_orders(id, invoice_number, supplier:counterparties!purchase_orders_supplier_id_fkey(name))")
+    .is("moved_to_shipment_id", null)
     .order("cost_date", { ascending: false });
   if (type) q = q.eq("cost_type", type);
   const { data } = await q.returns<Row[]>();

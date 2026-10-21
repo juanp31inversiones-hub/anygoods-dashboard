@@ -78,6 +78,13 @@ export const COST_TYPE_LABELS: Record<string, string> = {
 /** Orden fijo de columnas para los desgloses. */
 export const COST_TYPES = Object.keys(COST_TYPE_LABELS);
 
+/** Costos que sí pertenecen a una compra. Los de Amazon (envío y placement) van en el envío FBA. */
+export const PO_COST_TYPES = COST_TYPES.filter((t) => t !== "amazon_inbound" && t !== "placement_fee");
+export const PO_COST_TYPE_LABELS: Record<string, string> = Object.fromEntries(PO_COST_TYPES.map((t) => [t, COST_TYPE_LABELS[t]]));
+
+/** Contrapartes que pueden ser proveedor de una compra. */
+export const SUPPLIER_KINDS = ["supplier", "brand"];
+
 export const DOC_TYPE_LABELS: Record<string, string> = {
   our_po: "Mi PO (orden enviada al proveedor)",
   supplier_invoice: "Invoice del proveedor",

@@ -6,6 +6,7 @@ import { PODocuments, type PODocument } from "@/components/PODocuments";
 import { DeleteButton } from "@/components/forms";
 import { BackLink } from "@/components/ui";
 import { deletePurchaseOrder, type POPayload } from "@/lib/actions";
+import { SUPPLIER_KINDS } from "@/lib/format";
 
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
@@ -14,7 +15,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
   const supabase = await createClient();
   const [opts, { data: po }, { data: docs }] = await Promise.all([
     formOptions(supabase),
-    supabase.from("purchase_orders").select("*, purchase_order_lines(id, product_id, cases, units, unit_cost), additional_costs(id, cost_type, description, amount, product_id, allocation, cost_date, counterparty_id)").eq("id", id).single(),
+    supabase.from("purchase_orders").select("*, purchase_order_lines(id, product_id, cases, units, unit_cost), additional_costs(id, cost_type, description, amount, product_id, allocation, cost_date, counterparty_id)").is("additional_costs.moved_to_shipment_id", null).eq("id", id).single(),
     supabase.from("po_documents").select("id, doc_type, file_path, file_name, size_bytes, created_at").eq("purchase_order_id", id).order("created_at"),
   ]);
   if (!po) notFound();
@@ -49,7 +50,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
       </div>
       <p className="muted text-sm">Al guardar se recalcula el costo neto por unidad de cada producto con sus costos adicionales.</p>
       <PODocuments poId={id} docs={(docs ?? []) as PODocument[]} />
-      <POForm initial={initial} suppliers={opts.counterparties} products={opts.products} />
+      <POForm initial={initial} suppliers={opts.counterparties.filter((c) => SUPPLIER_KINDS.includes(c.kind) || c.id === po.supplier_id || c.id === po.paid_via_id)} products={opts.products} />
     </div>
   );
 }

@@ -142,7 +142,7 @@ export async function savePurchaseOrder(p: POPayload): Promise<ActionState> {
       if (l.error) return { error: friendly(l.error) };
     }
     // Costos adicionales quitados del formulario
-    const { data: existingCosts } = await supabase.from("additional_costs").select("id").eq("purchase_order_id", p.id);
+    const { data: existingCosts } = await supabase.from("additional_costs").select("id").eq("purchase_order_id", p.id).is("moved_to_shipment_id", null);
     const keepCosts = new Set(p.costs.map((c) => c.id).filter(Boolean));
     const removedCosts = (existingCosts ?? []).map((r) => r.id).filter((id) => !keepCosts.has(id));
     if (removedCosts.length) {
@@ -505,4 +505,14 @@ export async function deleteFbaShipment(id: string): Promise<ActionState> {
   revalidatePath("/envios");
   revalidatePath("/inventario");
   done("/envios", "Envío eliminado; las unidades volvieron a su origen");
+}
+
+/** Cambia el tipo de una contraparte desde la lista (proveedor, servicio, marketplace…). */
+export async function setCounterpartyKind(id: string, kind: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("counterparties").update({ kind }).eq("id", id);
+  if (error) return { error: friendly(error) };
+  revalidatePath("/proveedores");
+  revalidatePath("/compras");
+  return undefined;
 }
