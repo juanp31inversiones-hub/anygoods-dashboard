@@ -63,6 +63,7 @@ export const KIND_LABELS: Record<string, string> = {
   marketplace: "Marketplace",
   service: "Servicio",
   partner: "Socio",
+  customer: "Cliente",
   other: "Otro",
 };
 
