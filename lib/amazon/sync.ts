@@ -124,11 +124,16 @@ export async function syncInventory(supabase: SupabaseClient) {
 
 /** Vincula SKUs a productos por ASIN cuando todavía no tienen producto. */
 export async function autoLinkListings(supabase: SupabaseClient) {
-  const [{ data: listings }, { data: products }] = await Promise.all([
+  const [{ data: listings }, { data: products }, { data: linked }] = await Promise.all([
     supabase.from("amazon_listings").select("sku, asin").is("product_id", null).not("asin", "is", null),
     supabase.from("products").select("id, asin").not("asin", "is", null),
+    supabase.from("amazon_listings").select("asin, product_id").not("product_id", "is", null).not("asin", "is", null),
   ]);
-  const byAsin = new Map((products ?? []).map((p) => [String(p.asin).toUpperCase(), p.id]));
+  // Un SKU nuevo del mismo ASIN que otro ya vinculado va al mismo producto
+  const byAsin = new Map([
+    ...(linked ?? []).map((l) => [String(l.asin).toUpperCase(), l.product_id] as const),
+    ...(products ?? []).map((p) => [String(p.asin).toUpperCase(), p.id] as const),
+  ]);
   for (const l of listings ?? []) {
     const pid = byAsin.get(String(l.asin).toUpperCase());
     if (pid) await supabase.from("amazon_listings").update({ product_id: pid }).eq("sku", l.sku);
@@ -188,9 +193,14 @@ function itemRow(type: string, ev: ShipEvent, it: Item, idx: number): EventRow {
 
 const empty = { principal: 0, tax: 0, shipping: 0, promotion: 0, fba_fee: 0, referral_fee: 0, other_fees: 0 };
 
-/** Convierte la respuesta de listFinancialEvents en filas por SKU. */
-export function parseFinancialEvents(fe: Record<string, unknown[]>, windowEnd: string): EventRow[] {
+/**
+ * Convierte la respuesta de listFinancialEvents en filas por SKU.
+ * Los cargos y ajustes no traen un ID propio y pueden repetirse idénticos (ej. 165 cargos de retiro de $3.95),
+ * así que se numeran en orden dentro de la ventana (seq) para no fusionarlos.
+ */
+export function parseFinancialEvents(fe: Record<string, unknown[]>, windowEnd: string, seq = { n: 0 }): EventRow[] {
   const rows: EventRow[] = [];
+  const nextId = (type: string) => `${type}:${windowEnd}:${seq.n++}`;
   const shipLike: [string, string][] = [
     ["ShipmentEventList", "shipment"], ["RefundEventList", "refund"],
     ["GuaranteeClaimEventList", "refund"], ["ChargebackEventList", "refund"],
@@ -207,19 +217,19 @@ export function parseFinancialEvents(fe: Record<string, unknown[]>, windowEnd: s
     const posted = ev.PostedDate ?? windowEnd;
     if (ev.AdjustmentItemList?.length) {
       ev.AdjustmentItemList.forEach((it, i) => rows.push({
-        ...empty, id: `adjustment:${posted}:${ev.AdjustmentType}:${it.SellerSKU ?? ""}:${i}:${hash(it)}`, event_type: "adjustment",
+        ...empty, id: nextId("adjustment"), event_type: "adjustment",
         posted_date: posted, order_id: null, sku: it.SellerSKU ?? null, quantity: Number(it.Quantity ?? 0) || null,
         other_fees: 0, total: round(amt(it.TotalAmount)), description: ev.AdjustmentType ?? null, raw: it,
       }));
     } else {
-      rows.push({ ...empty, id: `adjustment:${posted}:${ev.AdjustmentType}:${hash(ev)}`, event_type: "adjustment", posted_date: posted,
+      rows.push({ ...empty, id: nextId("adjustment"), event_type: "adjustment", posted_date: posted,
         order_id: null, sku: null, quantity: null, total: round(amt(ev.AdjustmentAmount)), description: ev.AdjustmentType ?? null, raw: ev });
     }
   }
   // Cargos de servicio (suscripción, almacenamiento, etc.). Amazon no envía fecha: se usa el fin de la ventana.
   for (const ev of (fe.ServiceFeeEventList ?? []) as { FeeReason?: string; FeeDescription?: string; SellerSKU?: string; FeeList?: Fee[] }[]) {
     const total = (ev.FeeList ?? []).reduce((a, f) => a + amt(f.FeeAmount), 0);
-    rows.push({ ...empty, id: `service_fee:${windowEnd}:${hash(ev)}`, event_type: "service_fee", posted_date: windowEnd, order_id: null,
+    rows.push({ ...empty, id: nextId("service_fee"), event_type: "service_fee", posted_date: windowEnd, order_id: null,
       sku: ev.SellerSKU ?? null, quantity: null, other_fees: round(total), total: round(total),
       description: ev.FeeDescription ?? ev.FeeReason ?? (ev.FeeList ?? []).map((f) => f.FeeType).join(", "), raw: ev });
   }
@@ -237,14 +247,16 @@ export function parseFinancialEvents(fe: Record<string, unknown[]>, windowEnd: s
     if (handled.has(list) || !Array.isArray(evs)) continue;
     for (const ev of evs as Record<string, unknown>[]) {
       const posted = (ev.PostedDate as string) ?? (ev.postedDate as string) ?? windowEnd;
-      rows.push({ ...empty, id: `other:${list}:${hash(ev)}`, event_type: "other", posted_date: posted, order_id: (ev.AmazonOrderId as string) ?? null,
+      rows.push({ ...empty, id: nextId("other"), event_type: "other", posted_date: posted, order_id: (ev.AmazonOrderId as string) ?? null,
         sku: null, quantity: null, total: 0, description: list, raw: ev });
     }
   }
   return rows;
 }
 
-type FinState = { window_start: string; next_token?: string | null; done_until?: string };
+type FinState = { window_start: string; next_token?: string | null; done_until?: string; seq?: number; v?: number };
+/** Versión del formato de IDs: si cambia, se vuelve a traer todo el historial. */
+const FIN_VERSION = 2;
 
 /**
  * Trae eventos financieros por ventanas de 90 días desde abr-2025, con límite de tiempo por ejecución.
@@ -256,7 +268,8 @@ export async function syncFinances(supabase: SupabaseClient, budgetMs = 240_000)
   let saved = 0;
   try {
     const { data: st } = await supabase.from("amazon_sync_state").select("value").eq("key", "finances").maybeSingle();
-    const state: FinState = (st?.value as FinState) ?? { window_start: HISTORY_START };
+    let state: FinState = (st?.value as FinState) ?? { window_start: HISTORY_START };
+    if (state.v !== FIN_VERSION) state = { window_start: HISTORY_START, v: FIN_VERSION };
     // Margen de 2 horas: Amazon publica los eventos con algo de retraso
     const nowSafe = new Date(Date.now() - 2 * 3_600_000);
     let complete = false;
@@ -266,13 +279,22 @@ export async function syncFinances(supabase: SupabaseClient, budgetMs = 240_000)
       // Al día: la próxima ejecución continúa desde donde quedó
       if (start >= nowSafe) { complete = true; break; }
       const end = new Date(Math.min(start.getTime() + WINDOW_DAYS * 86_400_000, nowSafe.getTime()));
+      if (!state.next_token) {
+        // Ventana nueva: se rehacen sus cargos y ajustes (los IDs dependen del orden), las ventas tienen ID estable.
+        state.seq = 0;
+        const { error: delErr } = await supabase.from("amazon_financial_events").delete()
+          .in("event_type", ["adjustment", "service_fee", "other"]).gte("posted_date", start.toISOString()).lte("posted_date", end.toISOString());
+        if (delErr) throw new Error(delErr.message);
+      }
       const res = await spGet<{ payload?: { FinancialEvents?: Record<string, unknown[]>; NextToken?: string } }>(
         "/finances/v0/financialEvents",
         state.next_token
           ? { NextToken: state.next_token, MaxResultsPerPage: "100" }
           : { PostedAfter: start.toISOString(), PostedBefore: end.toISOString(), MaxResultsPerPage: "100" },
       );
-      const rows = parseFinancialEvents(res.payload?.FinancialEvents ?? {}, end.toISOString());
+      const seq = { n: state.seq ?? 0 };
+      const rows = parseFinancialEvents(res.payload?.FinancialEvents ?? {}, end.toISOString(), seq);
+      state.seq = seq.n;
       if (rows.length) {
         // Asegura que cada SKU exista en amazon_listings para poder vincularlo
         const skus = [...new Set(rows.map((r) => r.sku).filter(Boolean))] as string[];
