@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Resumen" },
+  { href: "/productos", label: "Productos" },
+  { href: "/proveedores", label: "Proveedores" },
   { href: "/compras", label: "Compras" },
   { href: "/inventario", label: "Inventario" },
   { href: "/banco", label: "Banco" },
@@ -16,7 +18,7 @@ export function Nav({ email }: { email: string }) {
     <header className="border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <div className="mx-auto max-w-6xl px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
         <span className="font-semibold">AnyGoods</span>
-        <nav className="flex gap-1 text-sm">
+        <nav className="flex flex-wrap gap-1 text-sm">
           {LINKS.map((l) => {
             const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
             return (

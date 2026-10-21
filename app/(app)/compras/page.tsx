@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { STATUS_LABELS, date, money, units } from "@/lib/format";
+import Link from "next/link";
+import { PageHeader } from "@/components/ui";
 
 type Line = { units: number; unit_cost: number; landed_unit_cost: number | null; products: { description: string; asin: string | null } | null };
 type PO = {
@@ -43,13 +45,11 @@ export default async function Compras() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Compras</h1>
-        <p className="muted text-sm">
-          {pos.length} órdenes · producto {money(totalProduct)} · logística {money(totalLogistics)} · total{" "}
-          {money(totalProduct + totalLogistics)}
-        </p>
-      </div>
+      <PageHeader
+        title="Compras"
+        subtitle={`${pos.length} órdenes · producto ${money(totalProduct)} · logística ${money(totalLogistics)} · total ${money(totalProduct + totalLogistics)}`}
+        action={{ href: "/compras/nueva", label: "Nueva orden" }}
+      />
 
       <section className="card overflow-x-auto">
         <h2 className="font-semibold px-4 pt-4">Por proveedor</h2>
@@ -101,6 +101,7 @@ export default async function Compras() {
                 {money(po.amazon_placement_fee)}
                 {po.notes && <><br />{po.notes}</>}
               </p>
+              <div className="px-4 pb-4"><Link href={`/compras/${po.id}`} className="btn-ghost text-xs">Editar orden</Link></div>
             </div>
           </details>
         ))}

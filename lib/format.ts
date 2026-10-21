@@ -30,3 +30,31 @@ export const STATUS_LABELS: Record<string, string> = {
   closed: "Cerrada",
   cancelled: "Cancelada",
 };
+
+export const MOVEMENT_LABELS: Record<string, string> = {
+  purchase: "Compra",
+  sale: "Venta",
+  customer_return: "Devolución de cliente",
+  removal: "Retiro de Amazon",
+  liquidation: "Liquidación",
+  damaged: "Dañado / perdido",
+  reimbursed: "Reembolsado por Amazon",
+  adjustment: "Ajuste",
+  transfer: "Traslado",
+};
+
+export const LOCATION_LABELS: Record<string, string> = {
+  amazon_fba: "Amazon FBA",
+  supplier_warehouse: "Almacén proveedor",
+  own_warehouse: "Bodega propia",
+  prep_center: "Prep center",
+};
+
+export const KIND_LABELS: Record<string, string> = {
+  supplier: "Proveedor",
+  brand: "Marca",
+  marketplace: "Marketplace",
+  service: "Servicio",
+  partner: "Socio",
+  other: "Otro",
+};

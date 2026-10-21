@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { CATEGORY_LABELS, date, money } from "@/lib/format";
+import { PageHeader } from "@/components/ui";
 
 type Txn = {
   id: string;
@@ -30,10 +31,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<{ 
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Banco · Mercury</h1>
-        <p className="muted text-sm">{rows.length} movimientos · neto {money(total)}</p>
-      </div>
+      <PageHeader title="Banco" subtitle={`${rows.length} movimientos · neto ${money(total)}`} action={{ href: "/banco/nuevo", label: "Nuevo movimiento" }} />
 
       <div className="flex flex-wrap gap-2 text-sm">
         <Link href="/banco" className="rounded-full px-3 py-1 border" style={{ borderColor: "var(--border)", fontWeight: cat ? 400 : 600 }}>
@@ -61,7 +59,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<{ 
               <tr key={r.id}>
                 <td className="whitespace-nowrap">{date(r.txn_date)}</td>
                 <td>
-                  {r.description}
+                  <Link href={`/banco/${r.id}`} className="link">{r.description}</Link>
                   {r.notes && <div className="muted text-xs mt-0.5">{r.notes}</div>}
                 </td>
                 <td className="whitespace-nowrap">{r.category ? CATEGORY_LABELS[r.category] ?? r.category : "—"}</td>

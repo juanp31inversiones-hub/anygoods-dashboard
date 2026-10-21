@@ -33,3 +33,16 @@ table.data { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 table.data th { text-align: left; font-weight: 500; color: var(--muted); padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
 table.data td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+@layer components {
+  .input { @apply w-full rounded-lg border px-3 py-2 text-sm bg-transparent; border-color: var(--border); }
+  .input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .label { @apply block text-xs font-medium mb-1; color: var(--muted); }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-60; }
+  .btn-primary { @apply btn text-white; background: var(--accent); }
+  .btn-ghost { @apply btn border; border-color: var(--border); }
+  .btn-danger { @apply btn border; border-color: var(--neg); color: var(--neg); }
+  .link { color: var(--accent); }
+  .link:hover { text-decoration: underline; }
+}
+select.input option { background: var(--surface); color: var(--text); }
