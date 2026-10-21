@@ -51,7 +51,7 @@ export function POForm({ initial, suppliers, products }: {
     start(async () => {
       const res = await savePurchaseOrder(po);
       if (res?.error) setError(res.error);
-      else router.push(`/compras`);
+      else router.push(`/compras?ok=${encodeURIComponent(po.id ? "Orden actualizada" : "Orden creada")}`);
     });
   }
 

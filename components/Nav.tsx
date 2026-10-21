@@ -2,42 +2,63 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Boxes, Landmark, LayoutDashboard, LogOut, Package, ShoppingCart, Truck } from "lucide-react";
 
 const LINKS = [
-  { href: "/", label: "Resumen" },
-  { href: "/productos", label: "Productos" },
-  { href: "/proveedores", label: "Proveedores" },
-  { href: "/compras", label: "Compras" },
-  { href: "/inventario", label: "Inventario" },
-  { href: "/banco", label: "Banco" },
+  { href: "/", label: "Resumen", icon: LayoutDashboard },
+  { href: "/inventario", label: "Inventario", icon: Boxes },
+  { href: "/productos", label: "Productos", icon: Package },
+  { href: "/compras", label: "Compras", icon: ShoppingCart },
+  { href: "/banco", label: "Banco", icon: Landmark },
+  { href: "/proveedores", label: "Proveedores", icon: Truck },
 ];
 
-export function Nav({ email }: { email: string }) {
+function NavLinks({ compact }: { compact?: boolean }) {
   const path = usePathname();
   return (
-    <header className="border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <div className="mx-auto max-w-6xl px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-        <span className="font-semibold">AnyGoods</span>
-        <nav className="flex flex-wrap gap-1 text-sm">
-          {LINKS.map((l) => {
-            const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                className="rounded-md px-3 py-1.5"
-                style={active ? { background: "var(--bg)", fontWeight: 600 } : { color: "var(--muted)" }}
-              >
-                {l.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <form action="/auth/signout" method="post" className="ml-auto flex items-center gap-3 text-sm">
-          <span className="muted hidden sm:inline">{email}</span>
-          <button className="muted underline">Salir</button>
+    <>
+      {LINKS.map(({ href, label, icon: Icon }) => {
+        const active = href === "/" ? path === "/" : path.startsWith(href);
+        return (
+          <Link
+            key={href}
+            href={href}
+            className={`flex items-center gap-3 rounded-lg text-sm transition-colors ${compact ? "px-3 py-2 shrink-0" : "px-3 py-2.5"}`}
+            style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : { color: "var(--muted)" }}
+          >
+            <Icon size={18} strokeWidth={active ? 2.25 : 1.75} />
+            {label}
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
+export function Sidebar({ email }: { email: string }) {
+  return (
+    <>
+      {/* Escritorio */}
+      <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r sticky top-0 h-screen p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        <div className="px-3 pb-6 pt-1">
+          <div className="font-semibold text-lg">AnyGoods</div>
+          <div className="muted text-xs">Panel de control FBA</div>
+        </div>
+        <nav className="flex flex-col gap-1"><NavLinks /></nav>
+        <form action="/auth/signout" method="post" className="mt-auto px-3 pt-4 border-t text-xs" style={{ borderColor: "var(--border)" }}>
+          <div className="muted truncate mb-2">{email}</div>
+          <button className="flex items-center gap-2 muted hover:underline"><LogOut size={14} /> Cerrar sesión</button>
         </form>
-      </div>
-    </header>
+      </aside>
+
+      {/* Móvil */}
+      <header className="md:hidden sticky top-0 z-10 border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        <div className="flex items-center justify-between px-4 pt-3">
+          <span className="font-semibold">AnyGoods</span>
+          <form action="/auth/signout" method="post"><button aria-label="Cerrar sesión" className="muted"><LogOut size={18} /></button></form>
+        </div>
+        <nav className="flex gap-1 overflow-x-auto px-2 py-2"><NavLinks compact /></nav>
+      </header>
+    </>
   );
 }

@@ -11,6 +11,12 @@
   --accent: #0f766e;
   --pos: #15803d;
   --neg: #b91c1c;
+  --accent-soft: #ccfbf1;
+  --pos-soft: #dcfce7;
+  --neg-soft: #fee2e2;
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --pos-strong: #15803d;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -22,6 +28,12 @@
     --accent: #2dd4bf;
     --pos: #4ade80;
     --neg: #f87171;
+    --accent-soft: #134e4a;
+    --pos-soft: #14532d;
+    --neg-soft: #450a0a;
+    --warn: #fbbf24;
+    --warn-soft: #451a03;
+    --pos-strong: #15803d;
   }
 }
 body { background: var(--bg); color: var(--text); }

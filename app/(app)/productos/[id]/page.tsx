@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ProductForm, type Product } from "@/components/ProductForm";
 import { DeleteButton } from "@/components/forms";
 import { BackLink } from "@/components/ui";
+import { ArrowRightLeft, PackageMinus } from "lucide-react";
 import { deleteProduct } from "@/lib/actions";
 import { LOCATION_LABELS, MOVEMENT_LABELS, date, money, units } from "@/lib/format";
 
@@ -27,7 +28,15 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
       <BackLink href="/productos" label="Productos" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{product.description}</h1>
-        <DeleteButton action={deleteProduct.bind(null, id)} confirmText="¿Eliminar este producto? Si tiene compras asociadas, desactívalo en su lugar." />
+        <div className="flex flex-wrap gap-2 items-start">
+          {Number(stock?.units_on_hand ?? 0) !== 0 && (
+            <>
+              <Link href={`/inventario/conteo?product=${id}`} className="btn-primary"><PackageMinus size={16} /> Dar salida</Link>
+              <Link href={`/inventario/movimiento?product=${id}`} className="btn-ghost"><ArrowRightLeft size={16} /> Trasladar</Link>
+            </>
+          )}
+          <DeleteButton action={deleteProduct.bind(null, id)} confirmText="¿Eliminar este producto? Si tiene compras asociadas, desactívalo en su lugar." />
+        </div>
       </div>
 
       {stock && (

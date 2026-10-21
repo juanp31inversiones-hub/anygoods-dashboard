@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
+const done = (path: string, msg: string): never => redirect(`${path}?ok=${encodeURIComponent(msg)}`);
+
 export type ActionState = { error?: string; id?: string } | undefined;
 
 const str = (fd: FormData, k: string) => {
@@ -44,7 +46,7 @@ export async function saveProduct(_: ActionState, fd: FormData): Promise<ActionS
   if (error) return { error: friendly(error) };
   revalidatePath("/productos");
   revalidatePath("/inventario");
-  redirect("/productos");
+  done("/productos", id ? "Producto actualizado" : "Producto creado");
 }
 
 export async function deleteProduct(id: string): Promise<ActionState> {
@@ -52,7 +54,7 @@ export async function deleteProduct(id: string): Promise<ActionState> {
   const { error } = await supabase.from("products").delete().eq("id", id);
   if (error) return { error: friendly(error) };
   revalidatePath("/productos");
-  redirect("/productos");
+  done("/productos", "Producto eliminado");
 }
 
 // ===== Proveedores y contrapartes =====
@@ -74,7 +76,7 @@ export async function saveCounterparty(_: ActionState, fd: FormData): Promise<Ac
     : await supabase.from("counterparties").insert(row);
   if (error) return { error: friendly(error) };
   revalidatePath("/proveedores");
-  redirect("/proveedores");
+  done("/proveedores", id ? "Proveedor actualizado" : "Proveedor creado");
 }
 
 export async function deleteCounterparty(id: string): Promise<ActionState> {
@@ -82,7 +84,7 @@ export async function deleteCounterparty(id: string): Promise<ActionState> {
   const { error } = await supabase.from("counterparties").delete().eq("id", id);
   if (error) return { error: friendly(error) };
   revalidatePath("/proveedores");
-  redirect("/proveedores");
+  done("/proveedores", "Proveedor eliminado");
 }
 
 // ===== Órdenes de compra =====
@@ -150,7 +152,7 @@ export async function deletePurchaseOrder(id: string): Promise<ActionState> {
   }
   revalidatePath("/compras");
   revalidatePath("/inventario");
-  redirect("/compras");
+  done("/compras", "Orden eliminada");
 }
 
 // ===== Banco =====
@@ -178,7 +180,7 @@ export async function saveTransaction(_: ActionState, fd: FormData): Promise<Act
   if (error) return { error: friendly(error) };
   revalidatePath("/banco");
   revalidatePath("/");
-  redirect("/banco");
+  done("/banco", id ? "Movimiento actualizado" : "Movimiento registrado");
 }
 
 export async function deleteTransaction(id: string): Promise<ActionState> {
@@ -187,7 +189,7 @@ export async function deleteTransaction(id: string): Promise<ActionState> {
   if (error) return { error: friendly(error) };
   revalidatePath("/banco");
   revalidatePath("/");
-  redirect("/banco");
+  done("/banco", "Movimiento eliminado");
 }
 
 // ===== Inventario =====
@@ -226,7 +228,7 @@ export async function saveMovement(_: ActionState, fd: FormData): Promise<Action
   if (error) return { error: friendly(error) };
   revalidatePath("/inventario");
   revalidatePath("/productos");
-  redirect("/inventario");
+  done("/inventario", "Movimiento de inventario registrado");
 }
 
 export async function deleteMovement(id: string): Promise<ActionState> {
@@ -235,4 +237,53 @@ export async function deleteMovement(id: string): Promise<ActionState> {
   if (error) return { error: friendly(error) };
   revalidatePath("/inventario");
   return undefined;
+}
+
+// ===== Conteo y salidas de inventario =====
+export type StockCountPayload = {
+  date: string;
+  reason: string;
+  notes: string;
+  deactivate: boolean;
+  entries: { product_id: string; location: string; diff: number }[];
+};
+
+const EXIT_REASONS = new Set(["sale", "liquidation", "damaged", "removal", "adjustment"]);
+
+/** Registra la diferencia entre lo que dice el sistema y lo que realmente hay. */
+export async function applyStockCount(p: StockCountPayload): Promise<ActionState> {
+  const entries = p.entries.filter((e) => e.diff !== 0);
+  if (!entries.length) return { error: "No hay cambios: la cantidad real es igual a la del sistema." };
+  if (!EXIT_REASONS.has(p.reason)) return { error: "Motivo no válido." };
+  if (!p.date) return { error: "La fecha es obligatoria." };
+
+  const supabase = await createClient();
+  const rows = entries.map((e) => ({
+    product_id: e.product_id,
+    location: e.location,
+    qty: e.diff,
+    // Las salidas toman el motivo elegido; si sobran unidades es un ajuste positivo.
+    movement: e.diff < 0 ? p.reason : "adjustment",
+    occurred_on: p.date,
+    reference: "Conteo de inventario",
+    notes: p.notes || null,
+  }));
+  const { error } = await supabase.from("inventory_movements").insert(rows);
+  if (error) return { error: friendly(error) };
+
+  let deactivated = 0;
+  if (p.deactivate) {
+    const ids = [...new Set(entries.map((e) => e.product_id))];
+    const { data } = await supabase.from("v_inventory_on_hand").select("product_id, units_on_hand").in("product_id", ids);
+    const empty = (data ?? []).filter((r) => Number(r.units_on_hand) === 0).map((r) => r.product_id);
+    if (empty.length) {
+      await supabase.from("products").update({ active: false }).in("id", empty);
+      deactivated = empty.length;
+    }
+  }
+  revalidatePath("/inventario");
+  revalidatePath("/productos");
+  revalidatePath("/");
+  const out = entries.filter((e) => e.diff < 0).reduce((a, e) => a - e.diff, 0);
+  done("/inventario", `Inventario actualizado: ${out} unidades dadas de salida` + (deactivated ? `, ${deactivated} productos marcados como inactivos` : ""));
 }

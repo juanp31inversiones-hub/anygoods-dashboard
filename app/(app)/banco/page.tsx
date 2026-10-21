@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { CATEGORY_LABELS, date, money } from "@/lib/format";
 import { PageHeader } from "@/components/ui";
+import { Pencil, Plus } from "lucide-react";
 
 type Txn = {
   id: string;
@@ -31,7 +32,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<{ 
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Banco" subtitle={`${rows.length} movimientos · neto ${money(total)}`} action={{ href: "/banco/nuevo", label: "Nuevo movimiento" }} />
+      <PageHeader title="Banco" subtitle={`${rows.length} movimientos · neto ${money(total)}`} action={{ href: "/banco/nuevo", label: "Nuevo movimiento", icon: Plus }} />
 
       <div className="flex flex-wrap gap-2 text-sm">
         <Link href="/banco" className="rounded-full px-3 py-1 border" style={{ borderColor: "var(--border)", fontWeight: cat ? 400 : 600 }}>
@@ -52,7 +53,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<{ 
       <section className="card overflow-x-auto">
         <table className="data">
           <thead>
-            <tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Contraparte</th><th>PO</th><th className="num">Monto</th></tr>
+            <tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Contraparte</th><th>PO</th><th className="num">Monto</th><th /></tr>
           </thead>
           <tbody>
             {rows.map((r) => (
@@ -66,6 +67,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<{ 
                 <td>{r.partner?.short_name ?? r.counterparty?.name ?? "—"}</td>
                 <td className="muted">{r.purchase_order?.invoice_number ?? ""}</td>
                 <td className={`num ${Number(r.amount) < 0 ? "neg" : "pos"}`}>{money(r.amount)}</td>
+                <td><Link href={`/banco/${r.id}`} aria-label="Editar" className="muted hover:underline"><Pencil size={14} /></Link></td>
               </tr>
             ))}
           </tbody>

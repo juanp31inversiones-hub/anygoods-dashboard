@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { STATUS_LABELS, date, money, units } from "@/lib/format";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui";
+import { Pencil, Plus } from "lucide-react";
 
 type Line = { units: number; unit_cost: number; landed_unit_cost: number | null; products: { description: string; asin: string | null } | null };
 type PO = {
@@ -48,7 +49,7 @@ export default async function Compras() {
       <PageHeader
         title="Compras"
         subtitle={`${pos.length} órdenes · producto ${money(totalProduct)} · logística ${money(totalLogistics)} · total ${money(totalProduct + totalLogistics)}`}
-        action={{ href: "/compras/nueva", label: "Nueva orden" }}
+        action={{ href: "/compras/nueva", label: "Nueva orden", icon: Plus }}
       />
 
       <section className="card overflow-x-auto">
@@ -101,7 +102,7 @@ export default async function Compras() {
                 {money(po.amazon_placement_fee)}
                 {po.notes && <><br />{po.notes}</>}
               </p>
-              <div className="px-4 pb-4"><Link href={`/compras/${po.id}`} className="btn-ghost text-xs">Editar orden</Link></div>
+              <div className="px-4 pb-4"><Link href={`/compras/${po.id}`} className="btn-ghost text-xs"><Pencil size={14} /> Editar orden</Link></div>
             </div>
           </details>
         ))}

@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { Stat } from "@/components/Stat";
 import { CATEGORY_LABELS, money, pct, units } from "@/lib/format";
+import Link from "next/link";
+import { ClipboardCheck, Landmark, Package, ShoppingCart } from "lucide-react";
 
 const INCOME = ["amazon_payout", "other_sales"];
 const NON_OPERATING = ["capital_contribution", "capital_return", "transfer", "inventory"];
@@ -45,6 +47,23 @@ export default async function Dashboard() {
       <section>
         <h1 className="text-2xl font-semibold">Resumen</h1>
         <p className="muted text-sm">Basado en movimientos de Mercury y órdenes de compra registradas.</p>
+      </section>
+
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { href: "/compras/nueva", label: "Nueva compra", hint: "Registrar una orden a proveedor", icon: ShoppingCart },
+          { href: "/inventario/conteo", label: "Dar salida / conteo", hint: "Productos vendidos o que ya no tienes", icon: ClipboardCheck },
+          { href: "/banco/nuevo", label: "Registrar pago o ingreso", hint: "Movimiento en Mercury", icon: Landmark },
+          { href: "/productos/nuevo", label: "Nuevo producto", hint: "Con imagen, ASIN y UPC", icon: Package },
+        ].map(({ href, label, hint, icon: Icon }) => (
+          <Link key={href} href={href} className="card p-4 flex gap-3 items-start hover:shadow-sm transition-shadow">
+            <span className="rounded-lg p-2" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}><Icon size={20} /></span>
+            <span>
+              <span className="block font-medium text-sm">{label}</span>
+              <span className="block muted text-xs mt-0.5">{hint}</span>
+            </span>
+          </Link>
+        ))}
       </section>
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">

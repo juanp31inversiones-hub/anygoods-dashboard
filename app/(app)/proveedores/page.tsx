@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
+import { Plus } from "lucide-react";
 import { KIND_LABELS, money } from "@/lib/format";
 
 export default async function Proveedores() {
@@ -21,7 +22,7 @@ export default async function Proveedores() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Proveedores y contrapartes" subtitle="Proveedores, marcas, marketplaces y servicios" action={{ href: "/proveedores/nuevo", label: "Nuevo" }} />
+      <PageHeader title="Proveedores y contrapartes" subtitle="Proveedores, marcas, marketplaces y servicios" action={{ href: "/proveedores/nuevo", label: "Nuevo proveedor", icon: Plus }} />
       <section className="card overflow-x-auto">
         <table className="data">
           <thead><tr><th>Nombre</th><th>Tipo</th><th>Contacto</th><th className="num">Compras registradas</th><th className="num">Neto en banco</th></tr></thead>

@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type { ActionState } from "@/lib/actions";
+import { Trash2 } from "lucide-react";
 
 export function SubmitButton({ label = "Guardar", pending = "Guardando…" }: { label?: string; pending?: string }) {
   const { pending: isPending } = useFormStatus();
@@ -22,7 +23,9 @@ export function DeleteButton({ action, label = "Eliminar", confirmText }: {
   const [state, formAction, pending] = useActionState(async () => action(), undefined);
   return (
     <form action={formAction} onSubmit={(e) => { if (!confirm(confirmText)) e.preventDefault(); }} className="inline-flex flex-col items-start gap-1">
-      <button className="btn-danger" disabled={pending}>{pending ? "Eliminando…" : label}</button>
+      <button className={label === "✕" ? "neg text-sm px-1" : "btn-danger"} disabled={pending} aria-label={label === "✕" ? "Eliminar" : undefined}>
+        {pending ? "…" : label === "✕" ? "✕" : <><Trash2 size={16} /> {label}</>}
+      </button>
       <FormError state={state} />
     </form>
   );
