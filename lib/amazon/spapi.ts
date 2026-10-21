@@ -74,6 +74,19 @@ async function accessToken(): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Si producción responde 403, prueba el entorno de pruebas para saber si la app quedó registrada como sandbox. */
+export async function isSandboxApp(): Promise<boolean> {
+  try {
+    const res = await fetch("https://sandbox.sellingpartnerapi-na.amazon.com/sellers/v1/marketplaceParticipations", {
+      headers: { "x-amz-access-token": await accessToken(), accept: "application/json" },
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** GET a SP-API con reintentos ante límite de velocidad (429) y errores temporales. */
 export async function spGet<T = unknown>(path: string, params: Record<string, string | undefined> = {}): Promise<T> {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined) as [string, string][]);

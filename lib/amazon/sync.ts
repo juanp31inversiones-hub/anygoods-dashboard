@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { MARKETPLACE_ID, SpApiError, spGet } from "./spapi";
+import { MARKETPLACE_ID, SpApiError, isSandboxApp, spGet } from "./spapi";
 
 type Money = { CurrencyAmount?: number } | undefined;
 const amt = (m: Money) => Number(m?.CurrencyAmount ?? 0);
@@ -33,7 +33,12 @@ export async function testConnection(supabase: SupabaseClient) {
     await finish("ok", markets.length, msg);
     return { ok: true, message: msg };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    let msg = e instanceof Error ? e.message : String(e);
+    if (e instanceof SpApiError && e.status === 403) {
+      msg = (await isSandboxApp())
+        ? "La app está registrada como ENTORNO DE PRUEBAS: solo ve datos de ejemplo. Crea la app como 'Producción' en Develop Apps, autorízala y actualiza en Vercel el Client ID, Client Secret y Refresh Token de la nueva app."
+        : "Amazon reconoce la app pero no le da acceso a tu cuenta (403). En Develop Apps edita la app, confirma los roles (Finanzas y contabilidad; Seguimiento de pedidos e inventario), guarda, vuelve a pulsar 'Authorize app' y reemplaza en Vercel SPAPI_REFRESH_TOKEN con el token nuevo. Luego Redeploy.";
+    }
     await finish("error", 0, msg);
     return { ok: false, message: msg };
   }
