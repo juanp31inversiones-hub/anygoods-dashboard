@@ -58,3 +58,18 @@ export const KIND_LABELS: Record<string, string> = {
   partner: "Socio",
   other: "Otro",
 };
+
+export const COST_TYPE_LABELS: Record<string, string> = {
+  supplier_shipping: "Transporte del proveedor",
+  amazon_inbound: "Envío a Amazon",
+  placement_fee: "Inbound placement fee",
+  prep: "Prep y etiquetado",
+  duties: "Aranceles / aduana",
+  inspection: "Inspección",
+  storage: "Almacenamiento previo",
+  supplier_discount: "Descuento / nota crédito",
+  other: "Otro costo",
+};
+
+/** Orden fijo de columnas para los desgloses. */
+export const COST_TYPES = Object.keys(COST_TYPE_LABELS);

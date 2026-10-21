@@ -89,6 +89,16 @@ export async function deleteCounterparty(id: string): Promise<ActionState> {
 
 // ===== Órdenes de compra =====
 export type POLine = { id?: string; product_id: string; cases: string; units: string; unit_cost: string };
+export type POCost = {
+  id?: string;
+  cost_type: string;
+  description: string;
+  amount: string;
+  product_id: string; // "" = toda la orden
+  allocation: "units" | "value";
+  cost_date: string;
+  counterparty_id: string;
+};
 export type POPayload = {
   id?: string;
   supplier_id: string;
@@ -98,13 +108,10 @@ export type POPayload = {
   purchase_date: string;
   arrival_date: string;
   status: string;
-  supplier_shipping: string;
-  amazon_shipping: string;
-  amazon_placement_fee: string;
-  prep_cost: string;
   notes: string;
   location: string;
   lines: POLine[];
+  costs: POCost[];
 };
 
 export async function savePurchaseOrder(p: POPayload): Promise<ActionState> {
@@ -114,6 +121,12 @@ export async function savePurchaseOrder(p: POPayload): Promise<ActionState> {
   for (const l of p.lines) {
     if (!l.product_id || !(Number(l.units) > 0) || l.unit_cost === "" || Number(l.unit_cost) < 0)
       return { error: "Cada línea necesita producto, unidades mayores a 0 y costo unitario." };
+  }
+  for (const c of p.costs) {
+    if (!c.cost_type || c.amount === "" || Number.isNaN(Number(c.amount)))
+      return { error: "Cada costo adicional necesita tipo y monto." };
+    if (c.product_id && !p.lines.some((l) => l.product_id === c.product_id))
+      return { error: "Un costo está asignado a un producto que no está en la orden." };
   }
 
   const supabase = await createClient();
@@ -127,6 +140,14 @@ export async function savePurchaseOrder(p: POPayload): Promise<ActionState> {
       if (m.error) return { error: friendly(m.error) };
       const l = await supabase.from("purchase_order_lines").delete().in("id", removed);
       if (l.error) return { error: friendly(l.error) };
+    }
+    // Costos adicionales quitados del formulario
+    const { data: existingCosts } = await supabase.from("additional_costs").select("id").eq("purchase_order_id", p.id);
+    const keepCosts = new Set(p.costs.map((c) => c.id).filter(Boolean));
+    const removedCosts = (existingCosts ?? []).map((r) => r.id).filter((id) => !keepCosts.has(id));
+    if (removedCosts.length) {
+      const c = await supabase.from("additional_costs").delete().in("id", removedCosts);
+      if (c.error) return { error: friendly(c.error) };
     }
   }
   const { data, error } = await supabase.rpc("save_purchase_order", { p });
@@ -286,4 +307,52 @@ export async function applyStockCount(p: StockCountPayload): Promise<ActionState
   revalidatePath("/");
   const out = entries.filter((e) => e.diff < 0).reduce((a, e) => a - e.diff, 0);
   done("/inventario", `Inventario actualizado: ${out} unidades dadas de salida` + (deactivated ? `, ${deactivated} productos marcados como inactivos` : ""));
+}
+
+// ===== Costos adicionales sueltos (agregados después de la compra) =====
+export async function saveCost(_: ActionState, fd: FormData): Promise<ActionState> {
+  const supabase = await createClient();
+  const id = str(fd, "id");
+  const amount = num(fd, "amount");
+  const row = {
+    purchase_order_id: str(fd, "purchase_order_id"),
+    product_id: str(fd, "product_id"),
+    cost_type: str(fd, "cost_type"),
+    description: str(fd, "description"),
+    amount: amount === null ? null : (fd.get("cost_type") === "supplier_discount" ? -Math.abs(amount) : amount),
+    allocation: str(fd, "allocation") ?? "units",
+    cost_date: str(fd, "cost_date"),
+    counterparty_id: str(fd, "counterparty_id"),
+    bank_transaction_id: str(fd, "bank_transaction_id"),
+  };
+  if (!row.purchase_order_id || !row.cost_type || row.amount === null) return { error: "Orden, tipo y monto son obligatorios." };
+  if (row.product_id) {
+    const { count } = await supabase.from("purchase_order_lines").select("id", { count: "exact", head: true })
+      .eq("purchase_order_id", row.purchase_order_id).eq("product_id", row.product_id);
+    if (!count) return { error: "Ese producto no está en la orden seleccionada. Elige 'Toda la orden' u otro producto." };
+  }
+  // Si se cambia de orden, la orden anterior también debe recalcularse.
+  const prev = id ? (await supabase.from("additional_costs").select("purchase_order_id").eq("id", id).single()).data : null;
+  const { error } = id
+    ? await supabase.from("additional_costs").update(row).eq("id", id)
+    : await supabase.from("additional_costs").insert(row);
+  if (error) return { error: friendly(error) };
+  for (const po of new Set([row.purchase_order_id, prev?.purchase_order_id].filter(Boolean))) {
+    await supabase.rpc("allocate_po_costs", { p_po: po });
+  }
+  revalidatePath("/compras");
+  revalidatePath("/productos");
+  revalidatePath("/inventario");
+  done("/compras/costos", id ? "Costo actualizado y costo neto recalculado" : "Costo agregado y costo neto recalculado");
+}
+
+export async function deleteCost(id: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("additional_costs").select("purchase_order_id").eq("id", id).single();
+  const { error } = await supabase.from("additional_costs").delete().eq("id", id);
+  if (error) return { error: friendly(error) };
+  if (data) await supabase.rpc("allocate_po_costs", { p_po: data.purchase_order_id });
+  revalidatePath("/compras");
+  revalidatePath("/productos");
+  done("/compras/costos", "Costo eliminado y costo neto recalculado");
 }

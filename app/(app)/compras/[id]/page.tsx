@@ -13,7 +13,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
   const supabase = await createClient();
   const [opts, { data: po }] = await Promise.all([
     formOptions(supabase),
-    supabase.from("purchase_orders").select("*, purchase_order_lines(id, product_id, cases, units, unit_cost)").eq("id", id).single(),
+    supabase.from("purchase_orders").select("*, purchase_order_lines(id, product_id, cases, units, unit_cost), additional_costs(id, cost_type, description, amount, product_id, allocation, cost_date, counterparty_id)").eq("id", id).single(),
   ]);
   if (!po) notFound();
 
@@ -26,14 +26,15 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
     purchase_date: s(po.purchase_date),
     arrival_date: s(po.arrival_date),
     status: s(po.status),
-    supplier_shipping: s(po.supplier_shipping),
-    amazon_shipping: s(po.amazon_shipping),
-    amazon_placement_fee: s(po.amazon_placement_fee),
-    prep_cost: s(po.prep_cost),
     notes: s(po.notes),
     location: "amazon_fba",
     lines: (po.purchase_order_lines as { id: string; product_id: string; cases: number | null; units: number; unit_cost: number }[]).map((l) => ({
       id: l.id, product_id: l.product_id, cases: s(l.cases), units: s(l.units), unit_cost: s(l.unit_cost),
+    })),
+    costs: (po.additional_costs as { id: string; cost_type: string; description: string | null; amount: number; product_id: string | null; allocation: "units" | "value"; cost_date: string | null; counterparty_id: string | null }[]).map((c) => ({
+      id: c.id, cost_type: c.cost_type, description: s(c.description),
+      amount: s(c.cost_type === "supplier_discount" ? Math.abs(Number(c.amount)) : c.amount),
+      product_id: s(c.product_id), allocation: c.allocation, cost_date: s(c.cost_date), counterparty_id: s(c.counterparty_id),
     })),
   };
 
@@ -44,7 +45,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
         <h1 className="text-2xl font-semibold">Orden {po.invoice_number ?? ""}</h1>
         <DeleteButton action={deletePurchaseOrder.bind(null, id)} confirmText="¿Eliminar esta orden? Se borran sus líneas y movimientos de inventario, y se desvinculan los pagos." />
       </div>
-      <p className="muted text-sm">Al guardar se recalcula el costo final por unidad repartiendo la logística según el valor de cada producto.</p>
+      <p className="muted text-sm">Al guardar se recalcula el costo neto por unidad de cada producto con sus costos adicionales.</p>
       <POForm initial={initial} suppliers={opts.counterparties} products={opts.products} />
     </div>
   );
