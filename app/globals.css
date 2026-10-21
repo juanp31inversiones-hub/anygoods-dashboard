@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1c1a;
+  --muted: #6b6b66;
+  --border: #e4e4df;
+  --accent: #0f766e;
+  --pos: #15803d;
+  --neg: #b91c1c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110;
+    --surface: #1b1b19;
+    --text: #ededea;
+    --muted: #9a9a94;
+    --border: #2c2c29;
+    --accent: #2dd4bf;
+    --pos: #4ade80;
+    --neg: #f87171;
+  }
+}
+body { background: var(--bg); color: var(--text); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.muted { color: var(--muted); }
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+table.data { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+table.data th { text-align: left; font-weight: 500; color: var(--muted); padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.data td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
