@@ -1,157 +1,203 @@
-import { createClient } from "@/lib/supabase/server";
-import { Stat } from "@/components/Stat";
-import { CATEGORY_LABELS, money, pct, units } from "@/lib/format";
 import Link from "next/link";
-import { ClipboardCheck, Landmark, Send, ShoppingCart } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
+import { amazonPnl, type Pnl } from "@/lib/amazonPnl";
+import { CATEGORY_LABELS, money, pct, units } from "@/lib/format";
+import { ReconcileButton } from "@/components/AmazonControls";
 
-const INCOME = ["amazon_payout", "other_sales"];
-const NON_OPERATING = ["capital_contribution", "capital_return", "transfer", "inventory"];
+export const maxDuration = 60;
+
+const GUIDE = [
+  { href: "/amazon", label: "Amazon", use: "Ventas, cargos y pagos de Amazon. Usa “Sincronizar todo” una vez por semana." },
+  { href: "/inventario", label: "Inventario", use: "Cuántas unidades tienes y dónde están (Amazon, proveedor, bodega)." },
+  { href: "/envios", label: "Envíos FBA", use: "Cuando mandes mercancía a Amazon, regístralo aquí." },
+  { href: "/compras", label: "Compras", use: "Cada orden a un proveedor: costo, pagos y documentos." },
+  { href: "/banco", label: "Banco", use: "Movimientos de Mercury (pagos, ingresos, aportes)." },
+  { href: "/productos", label: "Productos", use: "Catálogo con foto y costo de cada producto." },
+  { href: "/proveedores", label: "Proveedores", use: "Proveedores, clientes y terceros como EC Access." },
+];
 
 export default async function Dashboard() {
   const supabase = await createClient();
-  const [txns, capital, monthly, inventory, agents] = await Promise.all([
+  const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const [txns, capital, monthly, onHand, agents, amzInv, listings, openPayouts, poStatus, pnlAll, pnl30] = await Promise.all([
     supabase.from("bank_transactions").select("amount, category"),
     supabase.from("v_partner_capital").select("*"),
     supabase.from("v_monthly_cashflow").select("*"),
-    supabase.from("v_inventory_on_hand").select("units_on_hand, units_fba, units_other, inventory_value"),
+    supabase.from("v_inventory_on_hand").select("product_id, description, image_url, units_fba, units_other, avg_cost, fba_unit_cost").neq("units_on_hand", 0),
     supabase.from("v_agent_balance").select("*"),
+    supabase.from("amazon_inventory").select("sku, fulfillable, reserved, unfulfillable, researching"),
+    supabase.from("amazon_listings").select("sku, product_id, products(description, image_url)").not("product_id", "is", null),
+    supabase.from("amazon_payouts").select("amount").neq("processing_status", "Closed"),
+    supabase.from("v_po_payment_status").select("total, paid"),
+    amazonPnl(supabase),
+    amazonPnl(supabase, since30),
   ]);
 
+  // Plata
   const rows = txns.data ?? [];
-  const sum = (f: (r: { amount: number; category: string }) => boolean) =>
-    rows.filter(f).reduce((a, r) => a + Number(r.amount), 0);
+  const cash = rows.reduce((a, r) => a + Number(r.amount), 0);
+  const amazonPending = (openPayouts.data ?? []).reduce((a, r) => a + Number(r.amount), 0);
+  const agentRows = (agents.data ?? []).map((a) => ({
+    ...a, balance: Number(a.deposited) + Number(a.collected_for_us ?? 0) - Number(a.spent_on_purchases) - Number(a.returned_to_us ?? 0),
+  }));
+  const withAgents = agentRows.reduce((a, r) => a + Math.max(0, r.balance), 0);
+  const toPay = (poStatus.data ?? []).reduce((a, r) => a + Math.max(0, Number(r.total) - Number(r.paid)), 0);
 
-  const cash = sum(() => true);
-  const contributed = sum((r) => r.category === "capital_contribution");
-  const income = sum((r) => INCOME.includes(r.category));
-  const opex = -sum((r) => Number(r.amount) < 0 && !NON_OPERATING.includes(r.category));
-  const inventoryPaid = -sum((r) => r.category === "inventory");
-  const operating = income - opex;
+  // Inventario: en Amazon se usa lo que Amazon reporta; fuera de Amazon, lo que lleva la app.
+  type Inv = { id: string; name: string; image: string | null; amazon: number; amazonSystem: number; other: number; value: number };
+  const invMap = new Map<string, Inv>();
+  for (const r of onHand.data ?? []) {
+    invMap.set(r.product_id, { id: r.product_id, name: r.description, image: r.image_url, amazon: 0, amazonSystem: Number(r.units_fba),
+      other: Number(r.units_other), value: Number(r.units_other) * Number(r.avg_cost ?? 0) });
+  }
+  const amzBySku = new Map((amzInv.data ?? []).map((i) => [i.sku, i.fulfillable + i.reserved + i.unfulfillable + i.researching]));
+  const unitCost = new Map((onHand.data ?? []).map((r) => [r.product_id, Number(r.fba_unit_cost ?? r.avg_cost ?? 0)]));
+  for (const l of (listings.data ?? []) as unknown as { sku: string; product_id: string; products: { description: string; image_url: string | null } | null }[]) {
+    const n = amzBySku.get(l.sku) ?? 0;
+    if (!n) continue;
+    const inv = invMap.get(l.product_id) ?? { id: l.product_id, name: l.products?.description ?? l.sku, image: l.products?.image_url ?? null, amazon: 0, amazonSystem: 0, other: 0, value: 0 };
+    inv.amazon += n;
+    inv.value += n * (unitCost.get(l.product_id) ?? 0);
+    invMap.set(l.product_id, inv);
+  }
+  const inventory = [...invMap.values()].filter((i) => i.amazon || i.other).sort((a, b) => b.value - a.value);
+  const invValue = inventory.reduce((a, i) => a + i.value, 0);
+  const total = cash + amazonPending + withAgents + invValue;
 
-  const inv = inventory.data ?? [];
-  const invValue = inv.reduce((a, r) => a + Number(r.inventory_value), 0);
-  const invUnits = inv.reduce((a, r) => a + Number(r.units_on_hand), 0);
-  const invOther = inv.reduce((a, r) => a + Number(r.units_other), 0);
-
-  const byCategory = Object.entries(
-    rows.reduce<Record<string, number>>((acc, r) => {
-      acc[r.category] = (acc[r.category] ?? 0) + Number(r.amount);
-      return acc;
-    }, {}),
-  ).sort((a, b) => a[1] - b[1]);
-
-  const totalCapital = (capital.data ?? []).reduce((a, p) => a + Number(p.net_capital), 0);
+  // Pendientes
+  type Todo = { text: string; detail: string; href?: string; action?: "reconcile" };
+  const todos: Todo[] = [];
+  if (pnl30.removals > 0) todos.push({ text: `Amazon te cobró ${money(pnl30.removals)} en retiros de inventario en los últimos 30 días.`,
+    detail: "Apaga el retiro automático: Seller Central → Settings → Fulfillment by Amazon → Automated unfulfillable removal → Disable." });
+  const fbaDiff = inventory.filter((i) => i.amazon !== i.amazonSystem);
+  if (fbaDiff.length) todos.push({ text: `El inventario en Amazon no coincide con la app (${fbaDiff.map((i) => `${i.name.split(" ").slice(0, 3).join(" ")}: app ${i.amazonSystem}, Amazon ${i.amazon}`).join("; ")}).`,
+    detail: "Pulsa “Cuadrar con Amazon”: registra las ventas y marca los faltantes que puedes reclamar.", action: "reconcile" });
+  for (const a of agentRows.filter((r) => r.balance > 1)) todos.push({ text: `${a.agent} tiene ${money(a.balance)} tuyos.`,
+    detail: "Pídeles un estado de cuenta (dinero e inventario) y que te devuelvan el saldo.", href: `/proveedores/${a.counterparty_id}` });
+  if (toPay > 0.01) todos.push({ text: `Tienes ${money(toPay)} por pagar a proveedores.`, detail: "Revisa las compras con saldo.", href: "/compras" });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 max-w-5xl">
       <section>
-        <h1 className="text-2xl font-semibold">Resumen</h1>
-        <p className="muted text-sm">Basado en movimientos de Mercury y órdenes de compra registradas.</p>
+        <h1 className="text-2xl font-semibold">Así va AnyGoods</h1>
+        <p className="muted text-sm">Resumen en lenguaje simple. Los datos de Amazon se actualizan con “Sincronizar todo” en la página Amazon.</p>
       </section>
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { href: "/compras/nueva", label: "Nueva compra", hint: "Registrar una orden a proveedor", icon: ShoppingCart },
-          { href: "/inventario/conteo", label: "Dar salida / conteo", hint: "Productos vendidos o que ya no tienes", icon: ClipboardCheck },
-          { href: "/banco/nuevo", label: "Registrar pago o ingreso", hint: "Movimiento en Mercury", icon: Landmark },
-          { href: "/envios/nuevo", label: "Enviar a Amazon", hint: "Mover unidades de tu inventario a FBA", icon: Send },
-        ].map(({ href, label, hint, icon: Icon }) => (
-          <Link key={href} href={href} className="card p-4 flex gap-3 items-start hover:shadow-sm transition-shadow">
-            <span className="rounded-lg p-2" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}><Icon size={20} /></span>
-            <span>
-              <span className="block font-medium text-sm">{label}</span>
-              <span className="block muted text-xs mt-0.5">{hint}</span>
-            </span>
-          </Link>
-        ))}
+      {/* 1. Plata */}
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg">1. ¿Cuánto vale hoy la empresa?</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Card label="En el banco (Mercury)" value={money(cash)} hint="Debe coincidir con tu saldo real" />
+          <Card label="Amazon te debe" value={money(amazonPending)} hint="Llega en el próximo pago" />
+          <Card label="En manos de terceros" value={money(withAgents)} hint={agentRows.filter((a) => a.balance > 1).map((a) => a.agent).join(", ") || "Nadie"} />
+          <Card label="Inventario (a costo)" value={money(invValue)} hint={`${units(inventory.reduce((a, i) => a + i.amazon + i.other, 0))} unidades`} />
+        </div>
+        <div className="card p-4 flex flex-wrap items-baseline justify-between gap-2">
+          <span className="font-medium">Total: plata + inventario</span>
+          <span className="text-2xl font-semibold tabular-nums">{money(total)}</span>
+          {toPay > 0.01 && <span className="muted text-xs w-full">Menos {money(toPay)} que aún debes a proveedores.</span>}
+        </div>
       </section>
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Caja Mercury (calculada)" value={money(cash)} hint="Compárala con el saldo real del banco" />
-        <Stat label="Capital aportado" value={money(contributed)} hint="Aportes netos de los 4 socios" />
-        <Stat label="Inventario a costo" value={money(invValue)} hint={`${units(invUnits)} und · ${units(invOther)} fuera de FBA · sin descontar ventas`} />
-        <Stat label="Resultado operativo (caja)" value={money(operating)} tone={operating < 0 ? "neg" : "pos"} hint="Ingresos − gastos, sin inventario ni aportes" />
+      {/* 2. Ganancia */}
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg">2. ¿Estamos ganando o perdiendo en Amazon?</h2>
+        <div className="grid lg:grid-cols-2 gap-3">
+          <PnlCard title="Últimos 30 días" p={pnl30} />
+          <PnlCard title="Desde el inicio (may-2025)" p={pnlAll} />
+        </div>
       </section>
 
-      <section className="grid lg:grid-cols-3 gap-3">
-        <Stat label="Ingresos operativos" value={money(income)} hint="Pagos Amazon + otras ventas" />
-        <Stat label="Gastos operativos" value={money(opex)} hint="Cargos Amazon, herramientas, legal, fees" tone="neg" />
-        <Stat label="Pagado en inventario" value={money(inventoryPaid)} hint="Incluye depósito a EC Access" />
-      </section>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        <section className="card overflow-x-auto">
-          <h2 className="font-semibold px-4 pt-4">Capital por socio</h2>
-          <table className="data mt-2">
-            <thead>
-              <tr><th>Socio</th><th className="num">% propiedad</th><th className="num">Aportado</th><th className="num">% del capital</th></tr>
-            </thead>
+      {/* 3. Inventario */}
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg">3. ¿Qué inventario tenemos y dónde?</h2>
+        <div className="card overflow-x-auto">
+          <table className="data">
+            <thead><tr><th>Producto</th><th className="num">En Amazon</th><th className="num">Fuera de Amazon</th><th className="num">Valor a costo</th></tr></thead>
             <tbody>
-              {(capital.data ?? []).map((p) => {
-                const share = totalCapital ? Number(p.net_capital) / totalCapital : 0;
-                const gap = share - Number(p.ownership_pct);
-                return (
-                  <tr key={p.short_name}>
-                    <td>{p.short_name}</td>
-                    <td className="num">{pct(Number(p.ownership_pct))}</td>
-                    <td className="num">{money(p.net_capital)}</td>
-                    <td className={`num ${Math.abs(gap) > 0.01 ? (gap > 0 ? "pos" : "neg") : ""}`}>{pct(share)}</td>
-                  </tr>
-                );
-              })}
+              {inventory.map((i) => (
+                <tr key={i.id}>
+                  <td>
+                    <Link href={`/productos/${i.id}`} className="flex items-center gap-2">
+                      <span className="w-8 h-8 rounded shrink-0 overflow-hidden" style={{ background: "var(--bg)" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {i.image && <img src={i.image} alt="" className="w-full h-full object-contain" />}
+                      </span>
+                      <span className="line-clamp-1">{i.name}</span>
+                    </Link>
+                  </td>
+                  <td className="num">{units(i.amazon)}</td>
+                  <td className="num">{units(i.other)}</td>
+                  <td className="num">{money(i.value)}</td>
+                </tr>
+              ))}
+              {inventory.length === 0 && <tr><td colSpan={4} className="muted">No hay inventario.</td></tr>}
             </tbody>
           </table>
-        </section>
+        </div>
+        <p className="muted text-xs">“En Amazon” es lo que Amazon reporta hoy. “Fuera de Amazon” es lo que está en el proveedor, el prep center o tu bodega. Detalle en <Link href="/inventario" className="link">Inventario</Link>.</p>
+      </section>
 
-        <section className="card overflow-x-auto">
-          <h2 className="font-semibold px-4 pt-4">Movimientos por categoría</h2>
-          <table className="data mt-2">
-            <thead><tr><th>Categoría</th><th className="num">Total</th></tr></thead>
+      {/* 4. Pendientes */}
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg">4. ¿Qué tengo que hacer?</h2>
+        {todos.length === 0 ? (
+          <div className="card p-4 flex items-center gap-2 pos"><CheckCircle2 size={18} /> Todo en orden.</div>
+        ) : (
+          <ol className="space-y-2">
+            {todos.map((t, i) => (
+              <li key={i} className="card p-4 flex gap-3">
+                <span className="rounded-full w-6 h-6 shrink-0 flex items-center justify-center text-xs font-semibold" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>{i + 1}</span>
+                <div className="space-y-1 flex-1">
+                  <p className="font-medium text-sm flex gap-1.5"><AlertTriangle size={15} className="neg shrink-0 mt-0.5" />{t.text}</p>
+                  <p className="muted text-sm">{t.detail}</p>
+                  {t.action === "reconcile" && <ReconcileButton />}
+                  {t.href && <Link href={t.href} className="link text-sm inline-flex items-center">Ir <ChevronRight size={14} /></Link>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      {/* Guía */}
+      <section className="space-y-3">
+        <h2 className="font-semibold text-lg">¿Para qué sirve cada sección?</h2>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {GUIDE.map((g) => (
+            <Link key={g.href} href={g.href} className="card p-3 hover:shadow-sm transition-shadow">
+              <span className="font-medium text-sm">{g.label}</span>
+              <span className="block muted text-xs mt-0.5">{g.use}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* Detalle para socios */}
+      <details className="card p-4">
+        <summary className="font-medium cursor-pointer">Detalle financiero: capital por socio y flujo de caja mensual</summary>
+        <div className="grid lg:grid-cols-2 gap-6 mt-4">
+          <table className="data">
+            <thead><tr><th>Socio</th><th className="num">% propiedad</th><th className="num">Aportado</th></tr></thead>
             <tbody>
-              {byCategory.map(([cat, total]) => (
-                <tr key={cat}>
-                  <td>{CATEGORY_LABELS[cat] ?? cat}</td>
-                  <td className={`num ${total < 0 ? "neg" : "pos"}`}>{money(total)}</td>
-                </tr>
+              {(capital.data ?? []).map((p) => (
+                <tr key={p.short_name}><td>{p.short_name}</td><td className="num">{pct(Number(p.ownership_pct))}</td><td className="num">{money(p.net_capital)}</td></tr>
               ))}
             </tbody>
           </table>
-        </section>
-      </div>
-
-      {(agents.data ?? []).length > 0 && (
-        <section className="card overflow-x-auto">
-          <h2 className="font-semibold px-4 pt-4">Dinero nuestro en manos de terceros</h2>
-          <p className="muted text-xs px-4">Depositado + cobrado a nuestro favor − pagado por nosotros − devuelto = lo que el tercero aún tiene nuestro.</p>
-          <table className="data mt-2">
-            <thead>
-              <tr><th>Tercero</th><th className="num">Depositado</th><th className="num">+ Cobrado a favor</th><th className="num">− Pagado por nosotros</th><th className="num">− Devuelto</th><th className="num">= Saldo que tienen</th></tr>
-            </thead>
+          <table className="data">
+            <thead><tr><th>Categoría del banco</th><th className="num">Total</th></tr></thead>
             <tbody>
-              {(agents.data ?? []).map((a) => {
-                const balance = Number(a.deposited) + Number(a.collected_for_us ?? 0) - Number(a.spent_on_purchases) - Number(a.returned_to_us ?? 0);
-                return (
-                  <tr key={a.agent}>
-                    <td><Link href={`/proveedores/${a.counterparty_id}`} className="link">{a.agent}</Link></td>
-                    <td className="num">{money(a.deposited)}</td>
-                    <td className="num">{money(a.collected_for_us)}</td>
-                    <td className="num">{money(a.spent_on_purchases)}</td>
-                    <td className="num">{money(a.returned_to_us)}</td>
-                    <td className={`num font-semibold ${balance > 1 ? "neg" : ""}`}>{money(balance)}</td>
-                  </tr>
-                );
-              })}
+              {Object.entries(rows.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.category]: (acc[r.category] ?? 0) + Number(r.amount) }), {}))
+                .sort((a, b) => a[1] - b[1]).map(([cat, t]) => (
+                  <tr key={cat}><td>{CATEGORY_LABELS[cat] ?? cat}</td><td className={`num ${t < 0 ? "neg" : "pos"}`}>{money(t)}</td></tr>
+                ))}
             </tbody>
           </table>
-        </section>
-      )}
-
-      <section className="card overflow-x-auto">
-        <h2 className="font-semibold px-4 pt-4">Flujo de caja mensual</h2>
-        <table className="data mt-2">
-          <thead>
-            <tr><th>Mes</th><th className="num">Ingresos operativos</th><th className="num">Egresos (sin aportes)</th><th className="num">Aportes netos</th><th className="num">Cambio en caja</th></tr>
-          </thead>
+        </div>
+        <table className="data mt-6">
+          <thead><tr><th>Mes</th><th className="num">Ingresos</th><th className="num">Egresos</th><th className="num">Aportes</th><th className="num">Cambio en caja</th></tr></thead>
           <tbody>
             {(monthly.data ?? []).slice().reverse().map((m) => (
               <tr key={m.month}>
@@ -164,7 +210,49 @@ export default async function Dashboard() {
             ))}
           </tbody>
         </table>
-      </section>
+      </details>
+    </div>
+  );
+}
+
+function Card({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="card p-4">
+      <div className="muted text-xs">{label}</div>
+      <div className="text-xl font-semibold mt-1 tabular-nums">{value}</div>
+      {hint && <div className="muted text-xs mt-1 line-clamp-1">{hint}</div>}
+    </div>
+  );
+}
+
+function PnlCard({ title, p }: { title: string; p: Pnl }) {
+  const line = (label: string, v: number, sign: "+" | "−" | "=", strong = false) => (
+    <tr className={strong ? "font-semibold" : ""}>
+      <td className={strong ? "" : "muted"}>{sign === "=" ? "" : sign} {label}</td>
+      <td className={`num ${sign === "=" ? (v < 0 ? "neg" : "pos") : ""}`}>{money(v)}</td>
+    </tr>
+  );
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="flex items-baseline justify-between">
+        <h3 className="font-medium">{title}</h3>
+        <span className="muted text-xs">{units(p.units)} unidades vendidas</span>
+      </div>
+      <p className={`text-lg font-semibold ${p.result < 0 ? "neg" : "pos"}`}>
+        {p.result < 0 ? `Perdiste ${money(-p.result)}` : `Ganaste ${money(p.result)}`}
+      </p>
+      <table className="data text-sm">
+        <tbody>
+          {line("Vendiste a clientes", p.sales, "+")}
+          {line("Amazon se quedó (comisiones, fees y devoluciones)", p.keptByAmazon, "−")}
+          {p.reimbursed !== 0 && line("Amazon te reembolsó (unidades perdidas)", p.reimbursed, "+")}
+          {line("Costo de los productos vendidos", p.cogs, "−")}
+          {line("Ganancia de los productos", p.productProfit, "=", true)}
+          {p.removals !== 0 && line("Retiros de inventario", p.removals, "−")}
+          {line("Otros cargos (envío a Amazon, almacenamiento, suscripción, etiquetas)", p.otherCharges, "−")}
+          {line("Resultado", p.result, "=", true)}
+        </tbody>
+      </table>
     </div>
   );
 }
