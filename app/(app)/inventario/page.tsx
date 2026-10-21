@@ -19,7 +19,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   const [all, { data: moves }] = await Promise.all([
     stockByLocation(supabase, false),
     supabase.from("inventory_movements")
-      .select("id, movement, qty, location, occurred_on, reference, notes, products(id, description)")
+      .select("id, movement, qty, location, occurred_on, reference, notes, fba_shipment_id, products(id, description)")
       .neq("movement", "purchase").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(60),
   ]);
   const withStock = all.filter((r) => Number(r.units_on_hand) !== 0);
@@ -29,7 +29,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   const totalsByLoc = Object.fromEntries(usedLocations.map((loc) => [loc, withStock.reduce((a, r) => a + (r.stock[loc] ?? 0), 0)]));
   const totalValue = withStock.reduce((a, r) => a + Number(r.inventory_value), 0);
 
-  type M = { id: string; movement: string; qty: number; location: string; occurred_on: string; reference: string | null; notes: string | null; products: { id: string; description: string } | null };
+  type M = { id: string; fba_shipment_id: string | null; movement: string; qty: number; location: string; occurred_on: string; reference: string | null; notes: string | null; products: { id: string; description: string } | null };
 
   return (
     <div className="space-y-6">
@@ -37,7 +37,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
         title="Inventario"
         subtitle={`${withStock.length} productos con stock · ${money(totalValue)} a costo neto`}
         actions={[
-          { href: "/inventario/envio", label: "Enviar a Amazon", icon: Send },
+          { href: "/envios/nuevo", label: "Enviar a Amazon", icon: Send },
           { href: "/inventario/conteo", label: "Conteo y salidas", icon: ClipboardCheck },
           { href: "/inventario/movimiento", label: "Otro movimiento", icon: Plus },
         ]}
@@ -104,7 +104,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
                     {!empty && (
                       <div className="flex gap-1">
                         {Object.entries(r.stock).some(([loc, q]) => loc !== "amazon_fba" && q > 0) && (
-                          <RowLink href={`/inventario/envio?product=${r.product_id}`} label="Enviar a Amazon" icon={Send} tone="primary" />
+                          <RowLink href={`/envios/nuevo?product=${r.product_id}`} label="Enviar a Amazon" icon={Send} tone="primary" />
                         )}
                         <RowLink href={`/inventario/conteo?product=${r.product_id}`} label="Dar salida" icon={PackageMinus} />
                       </div>
@@ -120,7 +120,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
 
       <section className="card overflow-x-auto">
         <h2 className="font-semibold px-4 pt-4">Historial de envíos, salidas y ajustes</h2>
-        <p className="muted text-xs px-4">Las entradas por compra se gestionan desde Compras. Si te equivocas, elimina el movimiento con ✕.</p>
+        <p className="muted text-xs px-4">Las compras se gestionan desde Compras y los envíos desde Envíos FBA. Los ajustes manuales se pueden eliminar con ✕.</p>
         <table className="data mt-2">
           <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Ubicación</th><th>Referencia</th><th className="num">Cantidad</th><th /></tr></thead>
           <tbody>
@@ -130,9 +130,12 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
                 <td>{m.products?.description}</td>
                 <td>{MOVEMENT_LABELS[m.movement] ?? m.movement}</td>
                 <td>{LOCATION_LABELS[m.location] ?? m.location}</td>
-                <td className="muted">{m.reference}{m.notes ? ` · ${m.notes}` : ""}</td>
+                <td className="muted">
+                  {m.fba_shipment_id ? <Link href={`/envios/${m.fba_shipment_id}`} className="link">{m.reference}</Link> : m.reference}
+                  {m.notes ? ` · ${m.notes}` : ""}
+                </td>
                 <td className={`num ${m.qty < 0 ? "neg" : "pos"}`}>{m.qty > 0 ? "+" : ""}{units(m.qty)}</td>
-                <td><DeleteButton action={deleteMovement.bind(null, m.id)} label="✕" confirmText="¿Eliminar este movimiento? Si es parte de un envío, elimina también su contraparte (la otra ubicación)." /></td>
+                <td>{!m.fba_shipment_id && <DeleteButton action={deleteMovement.bind(null, m.id)} label="✕" confirmText="¿Eliminar este movimiento?" />}</td>
               </tr>
             ))}
             {(moves ?? []).length === 0 && <tr><td colSpan={7} className="muted">Sin movimientos todavía.</td></tr>}

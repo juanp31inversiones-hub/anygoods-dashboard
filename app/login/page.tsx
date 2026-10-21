@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Logo } from "@/components/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -75,8 +76,8 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="card w-full max-w-sm p-8">
-        <h1 className="text-xl font-semibold">AnyGoods Dashboard</h1>
-        <p className="muted text-sm mt-1">Acceso solo para usuarios autorizados.</p>
+        <div className="flex justify-center mb-4"><Logo className="h-14" /></div>
+        <p className="muted text-sm text-center">Panel de control · Acceso solo para usuarios autorizados.</p>
 
         {step === "password" ? (
           <form onSubmit={signInWithPassword} className="mt-6 space-y-3">

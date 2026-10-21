@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AnyGoods Dashboard",
+  title: "AnyGoods · Panel FBA",
   description: "Compras, inventario, banco y números de AnyGoods LLC",
 };
 

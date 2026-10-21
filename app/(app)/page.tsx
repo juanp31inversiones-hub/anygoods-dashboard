@@ -54,7 +54,7 @@ export default async function Dashboard() {
           { href: "/compras/nueva", label: "Nueva compra", hint: "Registrar una orden a proveedor", icon: ShoppingCart },
           { href: "/inventario/conteo", label: "Dar salida / conteo", hint: "Productos vendidos o que ya no tienes", icon: ClipboardCheck },
           { href: "/banco/nuevo", label: "Registrar pago o ingreso", hint: "Movimiento en Mercury", icon: Landmark },
-          { href: "/inventario/envio", label: "Enviar a Amazon", hint: "Mover unidades de tu inventario a FBA", icon: Send },
+          { href: "/envios/nuevo", label: "Enviar a Amazon", hint: "Mover unidades de tu inventario a FBA", icon: Send },
         ].map(({ href, label, hint, icon: Icon }) => (
           <Link key={href} href={href} className="card p-4 flex gap-3 items-start hover:shadow-sm transition-shadow">
             <span className="rounded-lg p-2" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}><Icon size={20} /></span>

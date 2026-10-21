@@ -1,12 +1,12 @@
--- Reinicia compras e inventario para empezar desde 0 (oct-2026).
+-- Reinicia compras, envíos FBA e inventario para empezar desde 0.
 -- Conserva: los 3 productos actuales, proveedores, socios, usuarios y movimientos bancarios.
--- Borra: todas las órdenes de compra, sus líneas y costos adicionales, todos los movimientos
--- de inventario y los demás productos. Los pagos del banco quedan desvinculados de las compras.
 begin;
 update bank_transactions set purchase_order_id = null where purchase_order_id is not null;
-update additional_costs set bank_transaction_id = null where bank_transaction_id is not null;
-delete from additional_costs;
 delete from inventory_movements;
+delete from fba_shipment_costs;
+delete from fba_shipment_items;
+delete from fba_shipments;
+delete from additional_costs;
 delete from purchase_order_lines;
 delete from purchase_orders;
 delete from products where description not in (

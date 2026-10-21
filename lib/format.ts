@@ -47,6 +47,7 @@ export const LOCATION_LABELS: Record<string, string> = {
   own_warehouse: "Mi inventario",
   supplier_warehouse: "Almacén del proveedor",
   prep_center: "Prep center",
+  fba_inbound: "En camino a Amazon",
   amazon_fba: "Amazon FBA",
 };
 
@@ -82,4 +83,32 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
   supplier_invoice: "Invoice del proveedor",
   payment_proof: "Comprobante de pago",
   other: "Otro documento",
+};
+
+// ===== Envíos FBA =====
+export const SHIPMENT_STATUS: { key: string; label: string; hint: string }[] = [
+  { key: "working", label: "Borrador", hint: "Plan creado en Send to Amazon; aún no sale" },
+  { key: "shipped", label: "Enviado", hint: "Entregado a la transportadora" },
+  { key: "in_transit", label: "En tránsito", hint: "Viajando al centro de Amazon" },
+  { key: "delivered", label: "Entregado", hint: "Llegó al centro de Amazon" },
+  { key: "receiving", label: "Recibiendo", hint: "Checked-in: Amazon está contando unidades" },
+  { key: "closed", label: "Cerrado", hint: "Recepción terminada" },
+  { key: "cancelled", label: "Cancelado", hint: "No se envió" },
+];
+export const SHIPMENT_STATUS_LABELS: Record<string, string> = Object.fromEntries(SHIPMENT_STATUS.map((s) => [s.key, s.label]));
+/** Estados en los que las unidades ya salieron de tu inventario. */
+export const SHIPMENT_MOVING = ["shipped", "in_transit", "delivered", "receiving", "closed"];
+
+export const FBA_COST_TYPE_LABELS: Record<string, string> = {
+  inbound_shipping: "Transporte a Amazon",
+  placement_fee: "Inbound placement fee",
+  amazon_prep: "Prep / etiquetado por Amazon",
+  manual_processing: "Manual processing fee",
+  other: "Otro costo",
+};
+
+export const CHARGED_TO_LABELS: Record<string, string> = {
+  amazon_balance: "Descontado del saldo de Amazon",
+  bank: "Pagado desde el banco",
+  card: "Pagado con tarjeta",
 };

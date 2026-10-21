@@ -17,7 +17,8 @@ export default async function Conteo({ searchParams }: { searchParams: Promise<{
   }
   const info = new Map((products ?? []).map((p) => [p.product_id, p]));
   const rows: StockRow[] = [...byKey.entries()]
-    .filter(([, qty]) => qty !== 0)
+    // Lo que va en camino a Amazon se gestiona desde su envío
+    .filter(([k, qty]) => qty !== 0 && !k.endsWith("|fba_inbound"))
     .map(([k, qty]) => {
       const [product_id, location] = k.split("|");
       const p = info.get(product_id);

@@ -36,7 +36,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
         <div className="flex flex-wrap gap-2 items-start">
           {Number(stock?.units_on_hand ?? 0) !== 0 && (
             <>
-              <Link href={`/inventario/envio?product=${id}`} className="btn-primary"><Send size={16} /> Enviar a Amazon</Link>
+              <Link href={`/envios/nuevo?product=${id}`} className="btn-primary"><Send size={16} /> Enviar a Amazon</Link>
               <Link href={`/inventario/conteo?product=${id}`} className="btn-ghost"><PackageMinus size={16} /> Dar salida</Link>
             </>
           )}
@@ -48,8 +48,12 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="card p-3"><div className="muted text-xs">En FBA</div><div className="text-lg font-semibold">{units(stock.units_fba)}</div></div>
           <div className="card p-3"><div className="muted text-xs">En mi inventario y otros</div><div className="text-lg font-semibold">{units(stock.units_other)}</div></div>
-          <div className="card p-3"><div className="muted text-xs">Costo promedio</div><div className="text-lg font-semibold">{money(stock.avg_cost)}</div></div>
-          <div className="card p-3"><div className="muted text-xs">Valor a costo</div><div className="text-lg font-semibold">{money(stock.inventory_value)}</div></div>
+          <div className="card p-3"><div className="muted text-xs">Costo de compra/u</div><div className="text-lg font-semibold">{money(stock.avg_cost)}</div></div>
+          <div className="card p-3">
+            <div className="muted text-xs">Costo neto en Amazon/u</div>
+            <div className="text-lg font-semibold">{money(stock.fba_unit_cost)}</div>
+            <div className="muted text-xs">incluye envío FBA {money(stock.inbound_unit_cost)}/u</div>
+          </div>
         </div>
       )}
 

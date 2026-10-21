@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Boxes, KeyRound, Landmark, LayoutDashboard, LogOut, Package, ShoppingCart, Truck } from "lucide-react";
+import { Logo } from "@/components/Logo";
+import { Boxes, KeyRound, Landmark, LayoutDashboard, LogOut, Package, Send, ShoppingCart, Truck } from "lucide-react";
 
 const LINKS = [
   { href: "/", label: "Resumen", icon: LayoutDashboard },
   { href: "/inventario", label: "Inventario", icon: Boxes },
+  { href: "/envios", label: "Envíos FBA", icon: Send },
   { href: "/productos", label: "Productos", icon: Package },
   { href: "/compras", label: "Compras", icon: ShoppingCart },
   { href: "/banco", label: "Banco", icon: Landmark },
@@ -40,10 +42,9 @@ export function Sidebar({ email }: { email: string }) {
     <>
       {/* Escritorio */}
       <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r sticky top-0 h-screen p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-        <div className="px-3 pb-6 pt-1">
-          <div className="font-semibold text-lg">AnyGoods</div>
-          <div className="muted text-xs">Panel de control FBA</div>
-        </div>
+        <Link href="/" className="px-3 pb-6 pt-1 block">
+          <Logo className="h-11" />
+        </Link>
         <nav className="flex flex-col gap-1"><NavLinks /></nav>
         <form action="/auth/signout" method="post" className="mt-auto px-3 pt-4 border-t text-xs" style={{ borderColor: "var(--border)" }}>
           <div className="muted truncate mb-2">{email}</div>
@@ -55,7 +56,7 @@ export function Sidebar({ email }: { email: string }) {
       {/* Móvil */}
       <header className="md:hidden sticky top-0 z-10 border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         <div className="flex items-center justify-between px-4 pt-3">
-          <span className="font-semibold">AnyGoods</span>
+          <Link href="/"><Logo className="h-7" /></Link>
           <div className="flex items-center gap-4">
             <Link href="/cuenta" aria-label="Mi cuenta" className="muted"><KeyRound size={18} /></Link>
             <form action="/auth/signout" method="post"><button aria-label="Cerrar sesión" className="muted"><LogOut size={18} /></button></form>

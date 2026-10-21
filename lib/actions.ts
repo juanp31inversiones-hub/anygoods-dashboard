@@ -257,7 +257,8 @@ export async function saveMovement(_: ActionState, fd: FormData): Promise<Action
 
 export async function deleteMovement(id: string): Promise<ActionState> {
   const supabase = await createClient();
-  const { error } = await supabase.from("inventory_movements").delete().eq("id", id).neq("movement", "purchase");
+  // Las compras y los envíos FBA gestionan sus propios movimientos.
+  const { error } = await supabase.from("inventory_movements").delete().eq("id", id).neq("movement", "purchase").is("fba_shipment_id", null);
   if (error) return { error: friendly(error) };
   revalidatePath("/inventario");
   return undefined;
@@ -360,40 +361,148 @@ export async function deleteCost(id: string): Promise<ActionState> {
   done("/compras/costos", "Costo eliminado y costo neto recalculado");
 }
 
-// ===== Envíos a Amazon (traslado de varias unidades desde mi inventario a FBA) =====
-export type ShipmentPayload = {
+
+// ===== Envíos FBA =====
+export type ShipmentItem = { id?: string; product_id: string; qty_shipped: string; qty_received: string };
+export type ShipmentCost = { id?: string; cost_type: string; description: string; amount: string; charged_to: string; allocation: "units" | "value" };
+export type FbaShipmentPayload = {
+  id?: string;
   shipment_id: string;
-  date: string;
+  name: string;
+  destination_fc: string;
   from_location: string;
-  to_location: string;
+  status: string;
+  created_on: string;
+  shipped_on: string;
+  closed_on: string;
+  carrier: string;
+  tracking: string;
+  boxes: string;
+  weight_lb: string;
   notes: string;
-  lines: { product_id: string; qty: number }[];
+  items: ShipmentItem[];
+  costs: ShipmentCost[];
 };
 
-export async function createShipment(p: ShipmentPayload): Promise<ActionState> {
-  const lines = p.lines.filter((l) => l.qty > 0);
-  if (!lines.length) return { error: "Indica cuántas unidades envías de al menos un producto." };
-  if (!p.date) return { error: "La fecha es obligatoria." };
-  if (p.from_location === p.to_location) return { error: "El origen y el destino deben ser distintos." };
+const MOVING = new Set(["shipped", "in_transit", "delivered", "receiving", "closed"]);
+
+/** Movimientos de inventario que corresponden al estado actual del envío. */
+function shipmentMovements(id: string, p: FbaShipmentPayload) {
+  if (!MOVING.has(p.status)) return [];
+  const ref = p.shipment_id ? `Envío ${p.shipment_id}` : "Envío FBA";
+  const sent = p.shipped_on || p.created_on;
+  const recv = p.closed_on || new Date().toISOString().slice(0, 10);
+  const rows: Record<string, unknown>[] = [];
+  const add = (product_id: string, movement: string, qty: number, location: string, occurred_on: string, notes?: string) =>
+    qty !== 0 && rows.push({ product_id, movement, qty, location, occurred_on, reference: ref, notes: notes ?? null, fba_shipment_id: id });
+
+  for (const it of p.items) {
+    const S = Number(it.qty_shipped);
+    add(it.product_id, "transfer", -S, p.from_location, sent);
+    add(it.product_id, "transfer", S, "fba_inbound", sent);
+    if (p.status === "receiving" || p.status === "closed") {
+      const R = it.qty_received === "" ? (p.status === "closed" ? S : 0) : Number(it.qty_received);
+      add(it.product_id, "transfer", -R, "fba_inbound", recv);
+      add(it.product_id, "transfer", R, "amazon_fba", recv);
+      if (p.status === "closed") {
+        const diff = S - R;
+        if (diff > 0) add(it.product_id, "damaged", -diff, "fba_inbound", recv, "Faltante en recepción FBA: reclamar a Amazon");
+        if (diff < 0) add(it.product_id, "adjustment", -diff, "fba_inbound", recv, "Amazon recibió más unidades de las enviadas");
+      }
+    }
+  }
+  return rows;
+}
+
+export async function saveFbaShipment(p: FbaShipmentPayload): Promise<ActionState> {
+  const items = p.items.filter((i) => i.product_id);
+  if (!items.length) return { error: "Agrega al menos un producto al envío." };
+  if (items.some((i) => !(Number(i.qty_shipped) > 0))) return { error: "Cada producto necesita unidades enviadas mayores a 0." };
+  if (new Set(items.map((i) => i.product_id)).size !== items.length) return { error: "Hay productos repetidos en el envío." };
+  if (items.some((i) => i.qty_received !== "" && Number(i.qty_received) < 0)) return { error: "Las unidades recibidas no pueden ser negativas." };
+  for (const c of p.costs) if (!c.cost_type || c.amount === "" || Number.isNaN(Number(c.amount))) return { error: "Cada costo necesita tipo y monto." };
+  if (["fba_inbound", "amazon_fba"].includes(p.from_location)) return { error: "El origen debe ser tu inventario, el proveedor o un prep center." };
 
   const supabase = await createClient();
-  // Valida que haya stock suficiente en el origen
-  const { data: stock } = await supabase.from("inventory_movements").select("product_id, qty")
-    .eq("location", p.from_location).in("product_id", lines.map((l) => l.product_id));
-  const available = new Map<string, number>();
-  for (const m of stock ?? []) available.set(m.product_id, (available.get(m.product_id) ?? 0) + m.qty);
-  const short = lines.find((l) => l.qty > (available.get(l.product_id) ?? 0));
-  if (short) return { error: "Hay productos con más unidades de las disponibles en el origen. Revisa las cantidades." };
 
-  const reference = p.shipment_id ? `Envío ${p.shipment_id}` : "Envío a Amazon";
-  const rows = lines.flatMap((l) => [
-    { product_id: l.product_id, movement: "transfer", qty: -l.qty, location: p.from_location, occurred_on: p.date, reference, notes: p.notes || null },
-    { product_id: l.product_id, movement: "transfer", qty: l.qty, location: p.to_location, occurred_on: p.date, reference, notes: p.notes || null },
-  ]);
-  const { error } = await supabase.from("inventory_movements").insert(rows);
-  if (error) return { error: friendly(error) };
+  // Stock en el origen sin contar los movimientos que ya generó este envío
+  if (MOVING.has(p.status)) {
+    const q = supabase.from("inventory_movements").select("product_id, qty, fba_shipment_id")
+      .eq("location", p.from_location).in("product_id", items.map((i) => i.product_id));
+    const { data } = await q;
+    const avail = new Map<string, number>();
+    for (const m of data ?? []) if (!p.id || m.fba_shipment_id !== p.id) avail.set(m.product_id, (avail.get(m.product_id) ?? 0) + m.qty);
+    const short = items.find((i) => Number(i.qty_shipped) > (avail.get(i.product_id) ?? 0));
+    if (short) return { error: "Hay productos con más unidades de las disponibles en el origen. Registra primero la compra o ajusta las cantidades." };
+  }
+
+  const row = {
+    shipment_id: p.shipment_id.trim().toUpperCase() || null,
+    name: p.name.trim() || null,
+    destination_fc: p.destination_fc.trim().toUpperCase() || null,
+    from_location: p.from_location,
+    status: p.status,
+    created_on: p.created_on || new Date().toISOString().slice(0, 10),
+    shipped_on: p.shipped_on || null,
+    closed_on: p.closed_on || null,
+    carrier: p.carrier || null,
+    tracking: p.tracking.trim() || null,
+    boxes: p.boxes === "" ? null : Number(p.boxes),
+    weight_lb: p.weight_lb === "" ? null : Number(p.weight_lb),
+    notes: p.notes.trim() || null,
+  };
+  let id = p.id;
+  if (id) {
+    const { error } = await supabase.from("fba_shipments").update(row).eq("id", id);
+    if (error) return { error: friendly(error) };
+  } else {
+    const { data, error } = await supabase.from("fba_shipments").insert(row).select("id").single();
+    if (error) return { error: friendly(error) };
+    id = data.id as string;
+  }
+
+  // Productos y costos: borra los quitados y guarda el resto
+  for (const [table, list] of [["fba_shipment_items", items], ["fba_shipment_costs", p.costs]] as const) {
+    const keep = list.map((x) => x.id).filter(Boolean) as string[];
+    let del = supabase.from(table).delete().eq("shipment_id", id);
+    if (keep.length) del = del.not("id", "in", `(${keep.join(",")})`);
+    const { error } = await del;
+    if (error) return { error: friendly(error) };
+  }
+  for (const it of items) {
+    const r = { shipment_id: id, product_id: it.product_id, qty_shipped: Number(it.qty_shipped), qty_received: it.qty_received === "" ? null : Number(it.qty_received) };
+    const { error } = it.id ? await supabase.from("fba_shipment_items").update(r).eq("id", it.id) : await supabase.from("fba_shipment_items").insert(r);
+    if (error) return { error: friendly(error) };
+  }
+  for (const c of p.costs) {
+    const r = { shipment_id: id, cost_type: c.cost_type, description: c.description.trim() || null, amount: Number(c.amount), charged_to: c.charged_to, allocation: c.allocation };
+    const { error } = c.id ? await supabase.from("fba_shipment_costs").update(r).eq("id", c.id) : await supabase.from("fba_shipment_costs").insert(r);
+    if (error) return { error: friendly(error) };
+  }
+
+  // Rehace los movimientos de inventario según el estado del envío
+  const delMoves = await supabase.from("inventory_movements").delete().eq("fba_shipment_id", id);
+  if (delMoves.error) return { error: friendly(delMoves.error) };
+  const moves = shipmentMovements(id, p);
+  if (moves.length) {
+    const { error } = await supabase.from("inventory_movements").insert(moves);
+    if (error) return { error: friendly(error) };
+  }
+
+  revalidatePath("/envios");
   revalidatePath("/inventario");
   revalidatePath("/productos");
-  const total = lines.reduce((a, l) => a + l.qty, 0);
-  done("/inventario", `${reference} registrado: ${total} unidades de ${lines.length} producto${lines.length === 1 ? "" : "s"}`);
+  revalidatePath("/");
+  return { id };
+}
+
+export async function deleteFbaShipment(id: string): Promise<ActionState> {
+  const supabase = await createClient();
+  const m = await supabase.from("inventory_movements").delete().eq("fba_shipment_id", id);
+  if (m.error) return { error: friendly(m.error) };
+  const { error } = await supabase.from("fba_shipments").delete().eq("id", id);
+  if (error) return { error: friendly(error) };
+  revalidatePath("/envios");
+  revalidatePath("/inventario");
+  done("/envios", "Envío eliminado; las unidades volvieron a su origen");
 }
