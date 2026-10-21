@@ -22,23 +22,39 @@ async function logRun(supabase: SupabaseClient, kind: string) {
 }
 
 // ===== Conexión =====
+/** Prueba cada API por separado para saber qué roles tiene la app. */
 export async function testConnection(supabase: SupabaseClient) {
   const finish = await logRun(supabase, "connection");
+  const checks: { name: string; role: string; run: () => Promise<unknown> }[] = [
+    { name: "Ventas y finanzas", role: "Finanzas y contabilidad (Finance and Accounting)",
+      run: () => spGet("/finances/v0/financialEventGroups", { MaxResultsPerPage: "1", FinancialEventGroupStartedAfter: new Date(Date.now() - 30 * 86_400_000).toISOString() }) },
+    { name: "Inventario FBA", role: "Logística de Amazon (Amazon Fulfillment)",
+      run: () => spGet("/fba/inventory/v1/summaries", { granularityType: "Marketplace", granularityId: MARKETPLACE_ID, marketplaceIds: MARKETPLACE_ID }) },
+    { name: "Datos de la cuenta", role: "Selling Partner Insights",
+      run: () => spGet("/sellers/v1/marketplaceParticipations") },
+  ];
+  const ok: string[] = [];
+  const missing: string[] = [];
   try {
-    const res = await spGet<{ payload: { marketplace: { id: string; name: string }; participation: { isParticipating: boolean } }[] }>(
-      "/sellers/v1/marketplaceParticipations",
-    );
-    const markets = res.payload.filter((p) => p.participation?.isParticipating).map((p) => p.marketplace.name);
-    const msg = `Conectado. Marketplaces activos: ${markets.join(", ") || "ninguno"}`;
-    await finish("ok", markets.length, msg);
-    return { ok: true, message: msg };
-  } catch (e) {
-    let msg = e instanceof Error ? e.message : String(e);
-    if (e instanceof SpApiError && e.status === 403) {
-      msg = (await isSandboxApp())
-        ? "La app está registrada como ENTORNO DE PRUEBAS: solo ve datos de ejemplo. Crea la app como 'Producción' en Develop Apps, autorízala y actualiza en Vercel el Client ID, Client Secret y Refresh Token de la nueva app."
-        : "Amazon reconoce la app pero no le da acceso a tu cuenta (403). En Develop Apps edita la app, confirma los roles (Finanzas y contabilidad; Seguimiento de pedidos e inventario), guarda, vuelve a pulsar 'Authorize app' y reemplaza en Vercel SPAPI_REFRESH_TOKEN con el token nuevo. Luego Redeploy.";
+    for (const c of checks) {
+      try {
+        await c.run();
+        ok.push(c.name);
+      } catch (e) {
+        if (e instanceof SpApiError && e.status === 403) missing.push(`${c.name} → falta el rol "${c.role}"`);
+        else throw e;
+      }
     }
+    if (!ok.length && (await isSandboxApp())) {
+      const msg = "La app está registrada como ENTORNO DE PRUEBAS: solo ve datos de ejemplo. Crea la app como 'Producción' en Develop Apps, autorízala y actualiza en Vercel las 3 credenciales de la nueva app.";
+      await finish("error", 0, msg);
+      return { ok: false, message: msg };
+    }
+    const msg = `${ok.length ? `Conectado: ${ok.join(", ")} OK.` : "Sin acceso a ninguna API."}${missing.length ? ` Pendiente: ${missing.join("; ")}.` : ""}`;
+    await finish(ok.length ? (missing.length ? "partial" : "ok") : "error", ok.length, msg);
+    return { ok: ok.length > 0, message: msg };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     await finish("error", 0, msg);
     return { ok: false, message: msg };
   }
@@ -98,7 +114,9 @@ export async function syncInventory(supabase: SupabaseClient) {
     await finish("ok", all.length, msg);
     return { ok: true, message: msg };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = e instanceof SpApiError && e.status === 403
+      ? "Falta el rol \"Logística de Amazon (Amazon Fulfillment)\" para leer el inventario FBA. Agrégalo en tu perfil de desarrollador y en la app, vuelve a autorizarla y actualiza SPAPI_REFRESH_TOKEN en Vercel."
+      : e instanceof Error ? e.message : String(e);
     await finish("error", 0, msg);
     return { ok: false, message: msg };
   }
