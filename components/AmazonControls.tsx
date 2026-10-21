@@ -22,20 +22,24 @@ export function SyncButtons() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
 
-  async function run(kind: "connection" | "inventory" | "finances" | "payouts") {
+  async function run(kind: "connection" | "all") {
     setBusy(kind);
     setMsg(null);
-    if (kind === "finances") {
-      // Repite tramos de ~45 s mientras Amazon tenga historial pendiente
+    if (kind === "all") {
+      // Un solo botón: inventario FBA → ventas y fees (por tramos de ~45 s) → pagos y cruce con el banco
+      const inv = await runAmazon("inventory");
+      setMsg({ ok: inv.ok, text: "Inventario FBA listo. Trayendo ventas y cargos…" });
+      let fin = { ok: true, message: "" };
       for (let i = 0; i < 60; i++) {
         const r = await runAmazon("finances");
+        fin = r;
         setMsg({ ok: r.ok, text: r.message });
         router.refresh();
         if (!r.ok || r.complete) break;
       }
-      // Al terminar las ventas, trae también los pagos de Amazon y los cruza con el banco
       const p = await runAmazon("payouts");
-      setMsg((m) => ({ ok: (m?.ok ?? true) && p.ok, text: `${m?.text ?? ""} · ${p.message}` }));
+      const ok = inv.ok && fin.ok && p.ok;
+      setMsg({ ok, text: ok ? "Todo sincronizado: inventario, ventas, cargos y pagos de Amazon." : [inv, fin, p].filter((r) => !r.ok).map((r) => r.message).join(" · ") });
       router.refresh();
     } else {
       const r = await runAmazon(kind);
@@ -48,17 +52,14 @@ export function SyncButtons() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
+        <button className="btn-primary" disabled={!!busy} onClick={() => run("all")}>
+          <RefreshCw size={16} className={busy === "all" ? "animate-spin" : ""} /> Sincronizar todo con Amazon
+        </button>
         <button className="btn-ghost" disabled={!!busy} onClick={() => run("connection")}>
           <RefreshCw size={16} className={busy === "connection" ? "animate-spin" : ""} /> Probar conexión
         </button>
-        <button className="btn-primary" disabled={!!busy} onClick={() => run("inventory")}>
-          <RefreshCw size={16} className={busy === "inventory" ? "animate-spin" : ""} /> Sincronizar inventario FBA
-        </button>
-        <button className="btn-primary" disabled={!!busy} onClick={() => run("finances")}>
-          <RefreshCw size={16} className={busy === "finances" ? "animate-spin" : ""} /> Sincronizar ventas, fees y pagos
-        </button>
       </div>
-      {busy === "finances" && <p className="muted text-xs">Trayendo historial desde abr-2025 por tramos; puede tardar varios minutos la primera vez. No cierres esta página.</p>}
+      {busy === "all" && <p className="muted text-xs">Sincronizando… puede tardar unos minutos. No cierres esta página.</p>}
       <Result msg={msg} />
     </div>
   );
@@ -72,7 +73,7 @@ export function ReconcileButton({ productId, label = "Cuadrar con Amazon" }: { p
     <div className="inline-flex flex-col gap-1">
       <button className={productId ? "btn-ghost text-xs py-1 px-2" : "btn-primary"} disabled={pending}
         onClick={() => {
-          if (!confirm("Se registrará como venta la diferencia entre el sistema y lo que Amazon reporta en FBA. ¿Continuar?")) return;
+          if (!confirm("Se registrarán como venta las unidades que Amazon reporta vendidas, y el resto de la diferencia como faltante. ¿Continuar?")) return;
           start(async () => { const r = await reconcileFba(productId); setMsg({ ok: r.ok, text: r.message }); router.refresh(); });
         }}>
         <Scale size={productId ? 13 : 16} /> {pending ? "Cuadrando…" : label}
