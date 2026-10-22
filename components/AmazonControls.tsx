@@ -27,6 +27,14 @@ export function SyncButtons() {
     setMsg(null);
     if (kind === "all") {
       // Un solo botón: inventario FBA → ventas y fees (por tramos de ~45 s) → pagos y cruce con el banco
+      // Primero los pedidos (lo más rápido y lo que se mira a diario)
+      let ord: { ok: boolean; message: string; complete?: boolean } = { ok: true, message: "" };
+      for (let i = 0; i < 20; i++) {
+        ord = await runAmazon("orders");
+        setMsg({ ok: ord.ok, text: ord.message });
+        router.refresh();
+        if (!ord.ok || ord.complete) break;
+      }
       const inv = await runAmazon("inventory");
       setMsg({ ok: inv.ok, text: "Inventario FBA listo. Trayendo ventas y cargos…" });
       let fin = { ok: true, message: "" };
@@ -40,8 +48,8 @@ export function SyncButtons() {
       const p = await runAmazon("payouts");
       setMsg({ ok: true, text: "Trayendo envíos a Amazon…" });
       const inb = await runAmazon("inbound");
-      const ok = inv.ok && fin.ok && p.ok && inb.ok;
-      setMsg({ ok, text: ok ? "Todo sincronizado: inventario, ventas, cargos, pagos y envíos de Amazon." : [inv, fin, p, inb].filter((r) => !r.ok).map((r) => r.message).join(" · ") });
+      const ok = ord.ok && inv.ok && fin.ok && p.ok && inb.ok;
+      setMsg({ ok, text: ok ? "Todo sincronizado: pedidos, inventario, ventas, cargos, pagos y envíos de Amazon." : [ord, inv, fin, p, inb].filter((r) => !r.ok).map((r) => r.message).join(" · ") });
       router.refresh();
     } else {
       const r = await runAmazon(kind);

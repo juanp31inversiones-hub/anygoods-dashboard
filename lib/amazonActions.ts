@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { syncFinances, syncInventory, syncPayouts, testConnection } from "@/lib/amazon/sync";
 import { AMAZON_TO_APP_STATUS, syncInbound, type InboundItem } from "@/lib/amazon/inbound";
+import { syncOrders } from "@/lib/amazon/orders";
 import { saveFbaShipment, type FbaShipmentPayload } from "@/lib/actions";
 import { loadShipmentPayload } from "@/lib/shipmentPayload";
 
@@ -16,13 +17,14 @@ async function memberClient() {
   return supabase;
 }
 
-export async function runAmazon(kind: "connection" | "inventory" | "finances" | "payouts" | "inbound"): Promise<SyncResult> {
+export async function runAmazon(kind: "connection" | "inventory" | "finances" | "payouts" | "inbound" | "orders"): Promise<SyncResult> {
   try {
     const supabase = await memberClient();
     const res = kind === "connection" ? await testConnection(supabase)
       : kind === "inventory" ? await syncInventory(supabase)
       : kind === "payouts" ? await syncPayouts(supabase)
       : kind === "inbound" ? await syncInboundAndApply(supabase)
+      : kind === "orders" ? await syncOrders(supabase)
       : await syncFinances(supabase, 45_000);
     revalidatePath("/amazon");
     return res;

@@ -5,10 +5,12 @@ import { Badge } from "@/components/ui";
 import { LinkSelect, ReconcileButton, SyncButtons } from "@/components/AmazonControls";
 import { date, money, units } from "@/lib/format";
 import { missingCredentials } from "@/lib/amazon/spapi";
+import { AmazonOrders, type OrderRow } from "@/components/AmazonOrders";
 
 export const maxDuration = 300;
 
 const TABS = [
+  { key: "pedidos", label: "Ventas (como el celular)" },
   { key: "rentabilidad", label: "Rentabilidad por producto" },
   { key: "inventario", label: "Inventario FBA" },
   { key: "pagos", label: "Pagos vs banco" },
@@ -47,12 +49,18 @@ type Ev = { event_type: string; posted_date: string; sku: string | null; quantit
   promotion: number; fba_fee: number; referral_fee: number; other_fees: number; total: number; description: string | null };
 
 export default async function Amazon({ searchParams }: { searchParams: Promise<{ tab?: string; period?: string; from?: string; to?: string }> }) {
-  const { tab = "rentabilidad", period = "30", from = "", to = "" } = await searchParams;
+  const sp = await searchParams;
+  const { tab = "pedidos", from = "", to = "" } = sp;
+  const period = sp.period ?? (tab === "pedidos" ? "month" : "30");
   const supabase = await createClient();
   const { since, until } = periodRange(period, from, to);
+  const ordersSince = [since, periodRange("lastmonth").since].sort()[0];
   const periodQs = period === "custom" ? `period=custom&from=${from}&to=${to}` : `period=${period}`;
 
-  const [{ data: runs }, { data: listings }, { data: inv }, { data: events }, { data: products }, { data: stock }, { data: fbaMoves }, { data: state }, { data: payouts }, { data: bankAmazon }] = await Promise.all([
+  const [{ data: orders }, { data: runs }, { data: listings }, { data: inv }, { data: events }, { data: products }, { data: stock }, { data: fbaMoves }, { data: state }, { data: payouts }, { data: bankAmazon }] = await Promise.all([
+    tab === "pedidos"
+      ? supabase.from("amazon_orders").select("order_id, purchase_date, status, items, items_synced").gte("purchase_date", ordersSince).order("purchase_date").limit(5000)
+      : Promise.resolve({ data: [] }),
     supabase.from("amazon_sync_runs").select("kind, status, message, started_at, finished_at").order("started_at", { ascending: false }).limit(30),
     supabase.from("amazon_listings").select("sku, asin, fnsku, title, product_id").order("title"),
     supabase.from("amazon_inventory").select("*"),
@@ -130,7 +138,7 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
         ))}
       </div>
 
-      {(tab === "rentabilidad" || tab === "cargos") && (
+      {(tab === "rentabilidad" || tab === "cargos" || tab === "pedidos") && (
         <div className="flex flex-wrap gap-2 text-sm items-center">
           {PERIODS.map((p) => (
             <Link key={p.key} href={`/amazon?tab=${tab}&period=${p.key}`} className="rounded-full px-3 py-1 border"
@@ -152,6 +160,10 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
         <p className="muted text-xs">Amazon registra la venta cuando envía el pedido (no cuando el cliente compra), así que “Hoy” puede ser menor que lo que ves en Seller Central.</p>
       )}
 
+      {tab === "pedidos" && (
+        <AmazonOrders orders={(orders ?? []) as OrderRow[]} since={since} until={until}
+          nameOf={(sku, title) => productById.get(productOfSku.get(sku) ?? "")?.description ?? title?.slice(0, 60) ?? sku} />
+      )}
       {tab === "rentabilidad" && <Profitability evs={evs} productOfSku={productOfSku} productById={productById} costOf={costOf} />}
       {tab === "cargos" && <AccountCharges evs={evs} />}
       {tab === "pagos" && <Payouts payouts={(payouts ?? []) as unknown as PayoutRow[]} bank={(bankAmazon ?? []) as unknown as BankRow[]} />}

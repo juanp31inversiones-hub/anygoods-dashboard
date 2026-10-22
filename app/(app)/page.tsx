@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { amazonPnl, type Pnl } from "@/lib/amazonPnl";
 import { CATEGORY_LABELS, money, pct, units } from "@/lib/format";
 import { ReconcileButton } from "@/components/AmazonControls";
+import { ProductFlow, type FlowMove } from "@/components/ProductFlow";
+import { stockByLocation } from "@/lib/stock";
 
 export const maxDuration = 60;
 
@@ -20,7 +22,7 @@ const GUIDE = [
 export default async function Dashboard() {
   const supabase = await createClient();
   const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
-  const [txns, capital, monthly, onHand, agents, amzInv, listings, openPayouts, poStatus, pnlAll, pnl30] = await Promise.all([
+  const [txns, capital, monthly, onHand, agents, amzInv, listings, openPayouts, poStatus, pnlAll, pnl30, stock, flowMoves] = await Promise.all([
     supabase.from("bank_transactions").select("amount, category"),
     supabase.from("v_partner_capital").select("*"),
     supabase.from("v_monthly_cashflow").select("*"),
@@ -32,6 +34,8 @@ export default async function Dashboard() {
     supabase.from("v_po_payment_status").select("total, paid"),
     amazonPnl(supabase),
     amazonPnl(supabase, since30),
+    stockByLocation(supabase, false),
+    supabase.from("inventory_movements").select("product_id, movement, qty, location, reference, notes"),
   ]);
 
   // Plata
@@ -111,32 +115,9 @@ export default async function Dashboard() {
 
       {/* 3. Inventario */}
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg">3. ¿Qué inventario tenemos y dónde?</h2>
-        <div className="card overflow-x-auto">
-          <table className="data">
-            <thead><tr><th>Producto</th><th className="num">En Amazon</th><th className="num">Fuera de Amazon</th><th className="num">Valor a costo</th></tr></thead>
-            <tbody>
-              {inventory.map((i) => (
-                <tr key={i.id}>
-                  <td>
-                    <Link href={`/productos/${i.id}`} className="flex items-center gap-2">
-                      <span className="w-8 h-8 rounded shrink-0 overflow-hidden" style={{ background: "var(--bg)" }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {i.image && <img src={i.image} alt="" className="w-full h-full object-contain" />}
-                      </span>
-                      <span className="line-clamp-1">{i.name}</span>
-                    </Link>
-                  </td>
-                  <td className="num">{units(i.amazon)}</td>
-                  <td className="num">{units(i.other)}</td>
-                  <td className="num">{money(i.value)}</td>
-                </tr>
-              ))}
-              {inventory.length === 0 && <tr><td colSpan={4} className="muted">No hay inventario.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-        <p className="muted text-xs">“En Amazon” es lo que Amazon reporta hoy. “Fuera de Amazon” es lo que está en el proveedor, el prep center o tu bodega. Detalle en <Link href="/inventario" className="link">Inventario</Link>.</p>
+        <h2 className="font-semibold text-lg">3. ¿Qué pasó con lo que compramos?</h2>
+        <p className="muted text-sm">Por producto: lo comprado, menos lo vendido y lo perdido, igual a lo que tienes hoy y dónde está.</p>
+        <ProductFlow products={stock.filter((r) => Number(r.units_on_hand) !== 0)} moves={(flowMoves.data ?? []) as FlowMove[]} />
       </section>
 
       {/* 4. Pendientes */}
