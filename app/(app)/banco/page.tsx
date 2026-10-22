@@ -75,6 +75,15 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
     return `/banco${p.size ? `?${p}` : ""}`;
   };
   const activePreset = presets().find((p) => p.from === from && p.to === to)?.label;
+  const dateForm = (
+<form className="flex flex-wrap gap-2 items-center text-sm">
+          {Object.entries(sp).filter(([k]) => !["from", "to"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+          <input type="date" name="from" defaultValue={from} className="input w-auto py-1" aria-label="Desde" />
+          <span className="muted">a</span>
+          <input type="date" name="to" defaultValue={to} className="input w-auto py-1" aria-label="Hasta" />
+          <button className="btn-ghost py-1">Aplicar</button>
+        </form>
+  );
 
   return (
     <div className="space-y-6">
@@ -91,35 +100,33 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
           </Link>
         ))}
       </div>
-        <form className="flex flex-wrap gap-2 items-center text-sm">
-          {Object.entries(sp).filter(([k]) => !["from", "to"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
-          <input type="date" name="from" defaultValue={from} className="input w-auto py-1" aria-label="Desde" />
-          <span className="muted">a</span>
-          <input type="date" name="to" defaultValue={to} className="input w-auto py-1" aria-label="Hasta" />
-          <button className="btn-ghost py-1">Aplicar</button>
-        </form>
+        <div className="hidden sm:block">{dateForm}</div>
+        <details className="sm:hidden text-sm">
+          <summary className="muted cursor-pointer">Elegir otras fechas</summary>
+          <div className="mt-2">{dateForm}</div>
+        </details>
       </div>
 
       {/* Tarjetas: tocan para filtrar */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Link href={url({ type: type === "in" ? "" : "in" })} className="card p-4 hover:shadow-sm" style={type === "in" ? { borderColor: "var(--pos)" } : undefined}>
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <Link href={url({ type: type === "in" ? "" : "in" })} className="card p-3 sm:p-4 hover:shadow-sm" style={type === "in" ? { borderColor: "var(--pos)" } : undefined}>
           <div className="muted text-xs flex items-center gap-1"><ArrowDownLeft size={14} className="pos" /> Entradas</div>
-          <div className="text-2xl font-semibold mt-1 tabular-nums pos">{money(sumIn)}</div>
-          <div className="muted text-xs">{rows.filter((t) => Number(t.amount) > 0).length} movimientos · toca para ver solo entradas</div>
+          <div className="text-xl sm:text-2xl font-semibold mt-1 tabular-nums pos">{money(sumIn)}</div>
+          <div className="muted text-xs">{rows.filter((t) => Number(t.amount) > 0).length} movimientos<span className="hidden sm:inline"> · toca para ver solo entradas</span></div>
         </Link>
-        <Link href={url({ type: type === "out" ? "" : "out" })} className="card p-4 hover:shadow-sm" style={type === "out" ? { borderColor: "var(--neg)" } : undefined}>
+        <Link href={url({ type: type === "out" ? "" : "out" })} className="card p-3 sm:p-4 hover:shadow-sm" style={type === "out" ? { borderColor: "var(--neg)" } : undefined}>
           <div className="muted text-xs flex items-center gap-1"><ArrowUpRight size={14} className="neg" /> Salidas</div>
-          <div className="text-2xl font-semibold mt-1 tabular-nums neg">{money(sumOut)}</div>
-          <div className="muted text-xs">{rows.filter((t) => Number(t.amount) < 0).length} movimientos · toca para ver solo salidas</div>
+          <div className="text-xl sm:text-2xl font-semibold mt-1 tabular-nums neg">{money(sumOut)}</div>
+          <div className="muted text-xs">{rows.filter((t) => Number(t.amount) < 0).length} movimientos<span className="hidden sm:inline"> · toca para ver solo salidas</span></div>
         </Link>
-        <div className="card p-4">
+        <div className="card p-3 sm:p-4">
           <div className="muted text-xs flex items-center gap-1"><Scale size={14} /> Neto del periodo</div>
-          <div className={`text-2xl font-semibold mt-1 tabular-nums ${sumIn + sumOut < 0 ? "neg" : "pos"}`}>{money(sumIn + sumOut)}</div>
+          <div className={`text-xl sm:text-2xl font-semibold mt-1 tabular-nums ${sumIn + sumOut < 0 ? "neg" : "pos"}`}>{money(sumIn + sumOut)}</div>
           <div className="muted text-xs">Entradas − salidas</div>
         </div>
-        <div className="card p-4">
+        <div className="card p-3 sm:p-4">
           <div className="muted text-xs flex items-center gap-1"><Wallet size={14} /> Saldo {to ? `al ${date(to)}` : "hoy"}</div>
-          <div className="text-2xl font-semibold mt-1 tabular-nums">{money(closing)}</div>
+          <div className="text-xl sm:text-2xl font-semibold mt-1 tabular-nums">{money(closing)}</div>
           <div className="muted text-xs">{from ? `Saldo inicial ${money(opening)}` : "Debe coincidir con Mercury"}</div>
         </div>
       </section>
@@ -130,7 +137,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
           <h2 className="font-semibold text-sm">¿En qué se movió la plata?</h2>
           {cat && <Link href={url({ cat: "" })} className="link text-xs">Quitar filtro de categoría</Link>}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="chips flex flex-wrap gap-2">
           {byCat.map(([k, v]) => (
             <Link key={k} href={url({ cat: cat === k ? "" : k })} className="rounded-lg border px-3 py-1.5 text-sm flex gap-2 items-baseline"
               style={cat === k ? { borderColor: "var(--accent)", background: "var(--accent-soft)" } : { borderColor: "var(--border)" }}>

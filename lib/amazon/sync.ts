@@ -378,7 +378,8 @@ export async function syncPayouts(supabase: SupabaseClient) {
       if (error) throw new Error(error.message);
     }
     const matched = await matchPayoutsToBank(supabase);
-    const msg = `${groups.length} liquidaciones de Amazon; ${matched} cruzadas con el banco en esta ejecución`;
+    const created = await bankFromPayouts(supabase);
+    const msg = `${groups.length} liquidaciones de Amazon; ${matched} cruzadas con el banco${created ? `; ${created} registradas en el banco automáticamente` : ""}`;
     await finish("ok", groups.length, msg);
     return { ok: true, message: msg };
   } catch (e) {
@@ -414,4 +415,41 @@ export async function matchPayoutsToBank(supabase: SupabaseClient) {
     }
   }
   return matched;
+}
+
+/**
+ * Registra en el banco los pagos de Amazon (entradas) y los cobros que Amazon hace a la cuenta (salidas)
+ * que aún no estén en el banco. Solo desde AUTO_BANK_FROM: lo anterior ya está cargado y cuadrado con Mercury.
+ */
+const AUTO_BANK_FROM = "2026-10-20";
+
+async function bankFromPayouts(supabase: SupabaseClient) {
+  const [{ data: payouts }, { data: account }, { data: amazon }] = await Promise.all([
+    supabase.from("amazon_payouts").select("group_id, amount, fund_transfer_date, fund_transfer_status, processing_status")
+      .is("bank_transaction_id", null).eq("processing_status", "Closed").gte("fund_transfer_date", AUTO_BANK_FROM),
+    supabase.from("bank_accounts").select("id").order("name").limit(1).maybeSingle(),
+    supabase.from("counterparties").select("id").eq("name", "Amazon").maybeSingle(),
+  ]);
+  if (!account) return 0;
+  let created = 0;
+  for (const p of payouts ?? []) {
+    const amount = Number(p.amount);
+    if (!amount || (amount > 0 && p.fund_transfer_status !== "Succeeded")) continue;
+    const { data: txn, error } = await supabase.from("bank_transactions").insert({
+      bank_account_id: account.id,
+      txn_date: String(p.fund_transfer_date).slice(0, 10),
+      description: amount > 0 ? "Pago de Amazon" : "Cobro de Amazon (saldo negativo)",
+      amount,
+      category: amount > 0 ? "amazon_payout" : "fees",
+      counterparty_id: amazon?.id ?? null,
+      external_id: `amazon:${p.group_id}`,
+      notes: amount > 0
+        ? "Registrado automáticamente desde la liquidación de Amazon. Llega a Mercury 1–3 días después."
+        : "Registrado automáticamente: Amazon cobró a la cuenta porque el saldo quedó negativo. Si lo cobró a la tarjeta, cámbialo.",
+    }).select("id").single();
+    if (error || !txn) continue;
+    await supabase.from("amazon_payouts").update({ bank_transaction_id: txn.id }).eq("group_id", p.group_id);
+    created++;
+  }
+  return created;
 }
