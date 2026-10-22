@@ -1,13 +1,15 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import { saveTransaction, type ActionState } from "@/lib/actions";
 import { CATEGORY_LABELS } from "@/lib/format";
 import { Field } from "@/components/ui";
 import { FormError, SubmitButton } from "@/components/forms";
 
 type Option = { id: string; name: string };
+type Counterparty = { id: string; name: string; kind?: string };
+export type CustomCategory = { key: string; label: string; direction: "in" | "out" };
 export type Txn = {
   id: string;
   bank_account_id: string;
@@ -26,30 +28,56 @@ const CATS = {
   out: ["inventory", "shipping", "fees", "software", "legal", "service_fee", "other_expense", "capital_return", "transfer"],
   in: ["amazon_payout", "other_sales", "capital_contribution", "transfer"],
 };
+const PARTNER_CATS = ["capital_contribution", "capital_return"];
+const NO_WHO = ["amazon_payout", "transfer", "fees", ...PARTNER_CATS];
 
-export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrders }: {
+export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrders, customCategories = [] }: {
   txn?: Txn;
   accounts: Option[];
-  counterparties: Option[];
+  counterparties: Counterparty[];
   partners: { id: string; short_name: string }[];
-  purchaseOrders: Option[];
+  purchaseOrders: (Option & { supplier_id?: string | null })[];
+  customCategories?: CustomCategory[];
 }) {
   const [state, action] = useActionState<ActionState, FormData>(saveTransaction, undefined);
   const [direction, setDirection] = useState<"out" | "in">(txn && Number(txn.amount) > 0 ? "in" : "out");
   const [category, setCategory] = useState(txn?.category ?? "");
-  const hasDetails = !!(txn?.counterparty_id || txn?.partner_id || txn?.purchase_order_id || txn?.notes);
+  const [newCategory, setNewCategory] = useState<string | null>(null);
+  const [partner, setPartner] = useState(txn?.partner_id ?? "");
+  const [who, setWho] = useState(counterparties.find((c) => c.id === txn?.counterparty_id)?.name ?? "");
+  const [po, setPo] = useState(txn?.purchase_order_id ?? "");
+  const [description, setDescription] = useState(txn?.description ?? "");
+
+  const labelOf = (k: string) => CATEGORY_LABELS[k] ?? customCategories.find((c) => c.key === k)?.label ?? k;
+  const cats = [...CATS[direction], ...customCategories.filter((c) => c.direction === direction).map((c) => c.key)];
+  const needsPartner = PARTNER_CATS.includes(category);
+  const needsWho = !NO_WHO.includes(category);
+  const whoMatch = counterparties.find((c) => c.name.toLowerCase() === who.trim().toLowerCase());
+  const supplierPos = purchaseOrders.filter((p) => !whoMatch || !p.supplier_id || p.supplier_id === whoMatch.id);
+  const partnerName = partners.find((p) => p.id === partner)?.short_name;
+  // Si no escriben descripción, se arma sola: "Aporte socio · Juan Pedro", "Inventario · Cleaning Heroes"
+  const auto = [newCategory || (category ? labelOf(category) : direction === "out" ? "Salida" : "Entrada"), needsPartner ? partnerName : who.trim()]
+    .filter(Boolean).join(" · ");
+  const chip = (active: boolean) => (active
+    ? { borderColor: "var(--accent)", background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 }
+    : { borderColor: "var(--border)" });
 
   return (
     <form action={action} className="card p-4 sm:p-5 space-y-5">
       <input type="hidden" name="id" value={txn?.id ?? ""} />
       <input type="hidden" name="direction" value={direction} />
-      <input type="hidden" name="category" value={category} />
+      <input type="hidden" name="category" value={newCategory === null ? category : ""} />
+      <input type="hidden" name="new_category" value={newCategory ?? ""} />
+      <input type="hidden" name="partner_id" value={needsPartner ? partner : ""} />
+      <input type="hidden" name="counterparty_id" value={needsWho && whoMatch ? whoMatch.id : category === "amazon_payout" || category === "fees" ? counterparties.find((c) => c.name === "Amazon")?.id ?? "" : ""} />
+      <input type="hidden" name="counterparty_name" value={needsWho && !whoMatch ? who.trim() : ""} />
+      <input type="hidden" name="auto_description" value={auto} />
 
       {/* 1. ¿Entra o sale? */}
       <div className="grid grid-cols-2 gap-2">
         {([["out", "Salida", "Pago o gasto", ArrowUpRight, "var(--neg)", "var(--neg-soft)"], ["in", "Entrada", "Ingreso o aporte", ArrowDownLeft, "var(--pos)", "var(--pos-soft)"]] as const)
           .map(([key, label, hint, Icon, color, soft]) => (
-            <button key={key} type="button" onClick={() => { setDirection(key); if (!CATS[key].includes(category)) setCategory(""); }}
+            <button key={key} type="button" onClick={() => { setDirection(key); setNewCategory(null); if (!CATS[key].includes(category)) setCategory(""); }}
               className="rounded-xl border-2 p-3 text-left"
               style={direction === key ? { borderColor: color, background: soft } : { borderColor: "var(--border)" }}>
               <span className="flex items-center gap-1.5 font-semibold" style={{ color: direction === key ? color : undefined }}><Icon size={18} /> {label}</span>
@@ -68,21 +96,60 @@ export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrder
         </div>
       </label>
 
-      {/* 3. Qué fue */}
-      <Field label="¿Qué fue?"><input name="description" required defaultValue={txn?.description} placeholder={direction === "out" ? "Ej: Pago a Cleaning Heroes" : "Ej: Pago de Amazon"} className="input" /></Field>
-
+      {/* 3. Categoría (o una nueva) */}
       <div>
         <span className="label">Categoría</span>
         <div className="flex flex-wrap gap-2">
-          {CATS[direction].map((k) => (
-            <button key={k} type="button" onClick={() => setCategory(category === k ? "" : k)} className="rounded-full border px-3 py-1.5 text-sm"
-              style={category === k ? { borderColor: "var(--accent)", background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : { borderColor: "var(--border)" }}>
-              {CATEGORY_LABELS[k]}
+          {cats.map((k) => (
+            <button key={k} type="button" onClick={() => { setNewCategory(null); setCategory(category === k ? "" : k); }}
+              className="rounded-full border px-3 py-1.5 text-sm" style={chip(newCategory === null && category === k)}>
+              {labelOf(k)}
             </button>
           ))}
+          <button type="button" onClick={() => { setCategory(""); setNewCategory(newCategory === null ? "" : null); }}
+            className="rounded-full border border-dashed px-3 py-1.5 text-sm inline-flex items-center gap-1" style={chip(newCategory !== null)}>
+            <Plus size={14} /> Nueva
+          </button>
         </div>
+        {newCategory !== null && (
+          <input autoFocus value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Nombre de la categoría (ej: Contabilidad)"
+            className="input mt-2" required />
+        )}
       </div>
 
+      {/* 4. ¿De quién / a quién? (según la categoría) */}
+      {needsPartner && (
+        <div>
+          <span className="label">{category === "capital_contribution" ? "¿Qué socio hizo el aporte?" : "¿A qué socio se le devolvió?"}</span>
+          <div className="flex flex-wrap gap-2">
+            {partners.map((p) => (
+              <button key={p.id} type="button" onClick={() => setPartner(p.id)} className="rounded-full border px-3 py-1.5 text-sm" style={chip(partner === p.id)}>
+                {p.short_name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {needsWho && (
+        <Field label={direction === "out" ? (category === "inventory" ? "¿A qué proveedor?" : "¿A quién se le pagó?") : "¿Quién te pagó?"}
+          hint={who.trim() && !whoMatch ? `“${who.trim()}” no existe: se creará al guardar.` : undefined}>
+          <input list="txn-counterparties" value={who} onChange={(e) => setWho(e.target.value)} placeholder="Escribe o elige un nombre" className="input" />
+          <datalist id="txn-counterparties">
+            {counterparties.map((c) => <option key={c.id} value={c.name} />)}
+          </datalist>
+        </Field>
+      )}
+      {category === "inventory" && direction === "out" && (
+        <Field label="¿De qué compra? (opcional)">
+          <select name="purchase_order_id" value={po} onChange={(e) => setPo(e.target.value)} className="input">
+            <option value="">—</option>
+            {supplierPos.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+      )}
+      {!(category === "inventory" && direction === "out") && <input type="hidden" name="purchase_order_id" value={po} />}
+
+      {/* 5. Fecha, cuenta y descripción */}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Fecha"><input type="date" name="txn_date" required defaultValue={txn?.txn_date ?? new Date().toISOString().slice(0, 10)} className="input" /></Field>
         {accounts.length > 1 ? (
@@ -95,32 +162,10 @@ export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrder
           <div><span className="label">Cuenta</span><div className="py-2 text-sm">{accounts[0]?.name}</div><input type="hidden" name="bank_account_id" value={txn?.bank_account_id ?? accounts[0]?.id} /></div>
         )}
       </div>
-
-      {/* Detalles opcionales */}
-      <details open={hasDetails} className="rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
-        <summary className="text-sm cursor-pointer muted">Más detalles (opcional): proveedor, socio, orden de compra, notas</summary>
-        <div className="grid sm:grid-cols-2 gap-3 mt-3">
-          <Field label="Proveedor / cliente">
-            <select name="counterparty_id" defaultValue={txn?.counterparty_id ?? ""} className="input">
-              <option value="">—</option>
-              {counterparties.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Socio (aportes o devoluciones)">
-            <select name="partner_id" defaultValue={txn?.partner_id ?? ""} className="input">
-              <option value="">—</option>
-              {partners.map((p) => <option key={p.id} value={p.id}>{p.short_name}</option>)}
-            </select>
-          </Field>
-          <Field label="Orden de compra">
-            <select name="purchase_order_id" defaultValue={txn?.purchase_order_id ?? ""} className="input">
-              <option value="">—</option>
-              {purchaseOrders.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Notas" className="sm:col-span-2"><textarea name="notes" rows={2} defaultValue={txn?.notes ?? ""} className="input" /></Field>
-        </div>
-      </details>
+      <Field label="Descripción (opcional)" hint={!description ? `Si la dejas vacía: “${auto}”` : undefined}>
+        <input name="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={auto} className="input" />
+      </Field>
+      <Field label="Notas (opcional)"><textarea name="notes" rows={2} defaultValue={txn?.notes ?? ""} className="input" /></Field>
 
       <div className="flex items-center gap-3">
         <SubmitButton label={txn ? "Guardar cambios" : direction === "out" ? "Registrar salida" : "Registrar entrada"} />

@@ -41,6 +41,8 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
     .order("txn_date", { ascending: true }).order("created_at", { ascending: true })
     .returns<Txn[]>();
   const all = data ?? [];
+  const { data: customCats } = await supabase.from("txn_categories").select("key, label");
+  const catLabel = (k: string) => CATEGORY_LABELS[k] ?? customCats?.find((c) => c.key === k)?.label ?? k;
 
   // Saldo después de cada movimiento (sobre todo el historial)
   let running = 0;
@@ -141,7 +143,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
           {byCat.map(([k, v]) => (
             <Link key={k} href={url({ cat: cat === k ? "" : k })} className="rounded-lg border px-3 py-1.5 text-sm flex gap-2 items-baseline"
               style={cat === k ? { borderColor: "var(--accent)", background: "var(--accent-soft)" } : { borderColor: "var(--border)" }}>
-              <span>{CATEGORY_LABELS[k] ?? k}</span>
+              <span>{catLabel(k)}</span>
               <span className={`tabular-nums font-medium ${v < 0 ? "neg" : "pos"}`}>{money(v)}</span>
             </Link>
           ))}
@@ -170,7 +172,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
           <Link key={r.id} href={`/banco/${r.id}`} className="flex justify-between gap-3 px-4 py-3" style={{ borderColor: "var(--border)" }}>
             <span className="min-w-0">
               <span className="block text-sm font-medium truncate">{r.description}</span>
-              <span className="block muted text-xs">{date(r.txn_date)} · {r.category ? CATEGORY_LABELS[r.category] ?? r.category : "—"}{who_(r) ? ` · ${who_(r)}` : ""}</span>
+              <span className="block muted text-xs">{date(r.txn_date)} · {r.category ? catLabel(r.category) : "—"}{who_(r) ? ` · ${who_(r)}` : ""}</span>
             </span>
             <span className="text-right shrink-0">
               <span className={`block text-sm font-semibold tabular-nums ${Number(r.amount) < 0 ? "neg" : "pos"}`}>{money(r.amount)}</span>
@@ -195,7 +197,7 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
                   {r.purchase_order && <span className="muted text-xs"> · {r.purchase_order.po_number ?? r.purchase_order.invoice_number}</span>}
                   {r.notes && <div className="muted text-xs mt-0.5 line-clamp-1">{r.notes}</div>}
                 </td>
-                <td className="whitespace-nowrap">{r.category ? CATEGORY_LABELS[r.category] ?? r.category : "—"}</td>
+                <td className="whitespace-nowrap">{r.category ? catLabel(r.category) : "—"}</td>
                 <td>{who_(r) || "—"}</td>
                 <td className={`num font-medium ${Number(r.amount) < 0 ? "neg" : "pos"}`}>{money(r.amount)}</td>
                 <td className="num muted">{money(balanceAfter.get(r.id))}</td>

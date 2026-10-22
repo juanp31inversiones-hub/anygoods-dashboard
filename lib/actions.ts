@@ -199,19 +199,45 @@ export async function saveTransaction(_: ActionState, fd: FormData): Promise<Act
   const id = str(fd, "id");
   const amount = num(fd, "amount");
   if (!amount || amount <= 0) return { error: "El monto debe ser mayor a 0." };
-  const sign = fd.get("direction") === "out" ? -1 : 1;
+  const direction = fd.get("direction") === "out" ? "out" : "in";
+  const sign = direction === "out" ? -1 : 1;
+
+  // Categoría nueva escrita por el usuario
+  let category = str(fd, "category");
+  const newCategory = str(fd, "new_category");
+  if (newCategory) {
+    const { data: key, error } = await supabase.rpc("add_txn_category", { p_label: newCategory, p_direction: direction });
+    if (error) return { error: friendly(error) };
+    category = key as string;
+  }
+  // A quién se pagó / quién pagó: si no existe, se crea
+  let counterpartyId = str(fd, "counterparty_id");
+  const cpName = str(fd, "counterparty_name");
+  if (!counterpartyId && cpName) {
+    const { data: found } = await supabase.from("counterparties").select("id").ilike("name", cpName).limit(1).maybeSingle();
+    if (found) counterpartyId = found.id;
+    else {
+      const kind = category === "inventory" ? "supplier" : direction === "in" ? "customer" : "service";
+      const { data: created, error } = await supabase.from("counterparties").insert({ name: cpName, kind }).select("id").single();
+      if (error) return { error: friendly(error) };
+      counterpartyId = created.id;
+    }
+  }
+  const partnerId = str(fd, "partner_id");
+  if ((category === "capital_contribution" || category === "capital_return") && !partnerId) return { error: "Elige de qué socio es." };
+
   const row = {
     bank_account_id: str(fd, "bank_account_id"),
     txn_date: str(fd, "txn_date"),
-    description: str(fd, "description"),
+    description: str(fd, "description") ?? str(fd, "auto_description"),
     amount: sign * amount,
-    category: str(fd, "category"),
-    counterparty_id: str(fd, "counterparty_id"),
-    partner_id: str(fd, "partner_id"),
+    category,
+    counterparty_id: counterpartyId,
+    partner_id: partnerId,
     purchase_order_id: str(fd, "purchase_order_id"),
     notes: str(fd, "notes"),
   };
-  if (!row.txn_date || !row.description || !row.bank_account_id) return { error: "Fecha, cuenta y descripción son obligatorias." };
+  if (!row.txn_date || !row.description || !row.bank_account_id) return { error: "Falta la fecha o una descripción." };
   const { error } = id
     ? await supabase.from("bank_transactions").update(row).eq("id", id)
     : await supabase.from("bank_transactions").insert(row);

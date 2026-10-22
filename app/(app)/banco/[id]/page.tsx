@@ -21,7 +21,7 @@ export default async function EditarMovimiento({ params }: { params: Promise<{ i
         <h1 className="text-xl md:text-2xl font-semibold">Editar movimiento</h1>
         <DeleteButton action={deleteTransaction.bind(null, id)} confirmText="¿Eliminar este movimiento bancario?" />
       </div>
-      <TxnForm txn={txn} accounts={o.accounts} counterparties={o.counterparties} partners={o.partners} purchaseOrders={o.purchaseOrders} />
+      <TxnForm txn={txn} accounts={o.accounts} counterparties={o.counterparties} partners={o.partners} purchaseOrders={o.purchaseOrders} customCategories={o.customCategories} />
     </div>
   );
 }
