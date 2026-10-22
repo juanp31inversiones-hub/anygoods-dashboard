@@ -28,7 +28,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
     stockByLocation(supabase, false),
     movesQ,
     supabase.from("amazon_inventory").select("sku, fulfillable, reserved, unfulfillable, researching"),
-    supabase.from("amazon_listings").select("sku, product_id").not("product_id", "is", null),
+    supabase.from("amazon_listings").select("sku, product_id, products(description)").not("product_id", "is", null),
     tab === "amazon" ? fbaLedger(supabase) : Promise.resolve([] as LedgerRow[]),
   ]);
   // Lo que Amazon reporta hoy por producto (disponible + reservado + no vendible + en investigación)
@@ -37,6 +37,16 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   for (const l of listings ?? []) if (amzSku.has(l.sku)) amazonSays.set(l.product_id!, (amazonSays.get(l.product_id!) ?? 0) + amzSku.get(l.sku)!);
   // Solo lo que de verdad tienes; un saldo negativo es un error de datos y se ve en "Todos los productos"
   const withStock = all.filter((r) => Number(r.units_on_hand) > 0);
+  // Unidades que siguen en Amazon pero no se pueden vender (dañadas, devueltas por clientes o en investigación)
+  const amzRaw = new Map((amzInv ?? []).map((i) => [i.sku, i]));
+  const blocked = new Map<string, { name: string; unfulfillable: number; researching: number }>();
+  for (const l of (listings ?? []) as unknown as { sku: string; product_id: string; products: { description: string } | null }[]) {
+    const i = amzRaw.get(l.sku);
+    if (!i || (!i.unfulfillable && !i.researching)) continue;
+    const b = blocked.get(l.product_id) ?? { name: l.products?.description ?? l.sku, unfulfillable: 0, researching: 0 };
+    b.unfulfillable += i.unfulfillable; b.researching += i.researching;
+    blocked.set(l.product_id, b);
+  }
   const rows = tab === "empty" ? all.filter((r) => Number(r.units_on_hand) === 0) : tab === "all" ? all : withStock;
   // Solo columnas de ubicaciones que tienen o tuvieron stock
   const totalsByLoc: Record<string, number> = Object.fromEntries(LOCATIONS.map((loc) => [loc, withStock.reduce((a, r) => a + (r.stock[loc] ?? 0), 0)]));
@@ -69,6 +79,23 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
           </div>
         ))}
       </section>
+
+      {blocked.size > 0 && (
+        <section className="card p-4 space-y-2" style={{ borderColor: "var(--warn)" }}>
+          <h2 className="font-semibold text-sm">En Amazon, pero no se pueden vender</h2>
+          <ul className="text-sm space-y-1">
+            {[...blocked.values()].map((b) => (
+              <li key={b.name}>
+                <b>{b.name}</b>:{b.unfulfillable ? ` ${units(b.unfulfillable)} no vendibles` : ""}{b.unfulfillable && b.researching ? " ·" : ""}{b.researching ? ` ${units(b.researching)} en investigación` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="muted text-xs">
+            <b>No vendibles</b> (unfulfillable): dañadas o devueltas por clientes en mal estado. Amazon cobra almacenamiento por ellas: crea en Seller Central una orden
+            de <b>eliminación (Dispose)</b>; devolverlas cuesta lo mismo y casi nunca se recuperan. <b>En investigación</b>: Amazon las está buscando; si no aparecen, te las paga.
+          </p>
+        </section>
+      )}
 
       <div className="chips flex gap-1 border-b overflow-x-auto" style={{ borderColor: "var(--border)" }}>
         {TABS.map((t) => (
