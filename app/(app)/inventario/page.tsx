@@ -6,6 +6,7 @@ import { DeleteButton } from "@/components/forms";
 import { Badge, PageHeader, RowLink } from "@/components/ui";
 import { ReconcileButton } from "@/components/AmazonControls";
 import { fbaLedger, type LedgerRow } from "@/lib/fbaLedger";
+import { StockFlowTable, type StockMove } from "@/components/StockFlowTable";
 import { deleteMovement } from "@/lib/actions";
 import { LOCATIONS, LOCATION_LABELS, MOVEMENT_LABELS, date, money, units } from "@/lib/format";
 
@@ -24,12 +25,13 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
     .select("id, movement, qty, location, occurred_on, reference, notes, unit_price, fba_shipment_id, products(id, description)")
     .neq("movement", "purchase").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(product ? 200 : 40);
   if (product) movesQ = movesQ.eq("product_id", product);
-  const [all, { data: moves }, { data: amzInv }, { data: listings }, ledger] = await Promise.all([
+  const [all, { data: moves }, { data: amzInv }, { data: listings }, ledger, { data: allMoves }] = await Promise.all([
     stockByLocation(supabase, false),
     movesQ,
     supabase.from("amazon_inventory").select("sku, fulfillable, reserved, unfulfillable, researching"),
     supabase.from("amazon_listings").select("sku, product_id, products(description)").not("product_id", "is", null),
     tab === "amazon" ? fbaLedger(supabase) : Promise.resolve([] as LedgerRow[]),
+    supabase.from("inventory_movements").select("product_id, movement, qty, location, reference, notes"),
   ]);
   // Lo que Amazon reporta hoy por producto (disponible + reservado + no vendible + en investigación)
   const amzSku = new Map((amzInv ?? []).map((i) => [i.sku, i.fulfillable + i.reserved + i.unfulfillable + i.researching]));
@@ -107,102 +109,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
       </div>
 
       {tab === "amazon" ? <AmazonLedger rows={ledger} /> : (
-      <>
-      {/* Celular: una tarjeta por producto */}
-      <section className="sm:hidden space-y-2">
-        {rows.map((r) => {
-          const outside = OUTSIDE.reduce((t, loc) => t + (r.stock[loc] ?? 0), 0);
-          return (
-            <Link key={r.product_id} href={`/productos/${r.product_id}`} className="card p-3 flex gap-3 items-center">
-              <span className="w-12 h-12 rounded shrink-0 overflow-hidden" style={{ background: "var(--bg)" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {r.image_url && <img src={r.image_url} alt="" className="w-full h-full object-contain" />}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium line-clamp-2">{r.description}</span>
-                <span className="block text-xs mt-1">
-                  <b>{units(r.stock.amazon_fba ?? 0)}</b> en Amazon · <b>{units(outside)}</b> fuera{(r.stock.fba_inbound ?? 0) ? ` · ${units(r.stock.fba_inbound)} en camino` : ""}
-                </span>
-                {amazonSays.has(r.product_id) && amazonSays.get(r.product_id) !== (r.stock.amazon_fba ?? 0) && (
-                  <span className="block text-xs neg">Amazon dice {units(amazonSays.get(r.product_id))}</span>
-                )}
-              </span>
-              <span className="text-right shrink-0">
-                <span className="block text-sm font-semibold">{units(r.units_on_hand)}</span>
-                <span className="block muted text-xs">{money(r.inventory_value)}</span>
-              </span>
-            </Link>
-          );
-        })}
-        {rows.length === 0 && <p className="muted text-sm">No hay productos en esta vista.</p>}
-      </section>
-      <section className="card overflow-x-auto hidden sm:block">
-        <table className="data min-w-[900px]">
-          <thead>
-            <tr>
-              <th>Producto</th>
-              <th className="num">Fuera de Amazon</th><th className="num">Camino a Amazon</th><th className="num">En Amazon</th>
-              <th className="num">Total</th><th className="num">Costo neto/u</th><th className="num">Valor</th><th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const empty = Number(r.units_on_hand) === 0;
-              const notInFba = (r.stock.amazon_fba ?? 0) === 0 && !empty;
-              return (
-                <tr key={r.product_id}>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <div className="w-9 h-9 rounded shrink-0 overflow-hidden flex items-center justify-center" style={{ background: "var(--bg)" }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {r.image_url && <img src={r.image_url} alt="" className="w-full h-full object-contain" />}
-                      </div>
-                      <div>
-                        <Link href={`/productos/${r.product_id}`} className="link">{r.description}</Link>
-                        <div className="flex gap-1 mt-0.5 items-center">
-                          <span className="muted text-xs">{r.asin ?? ""}</span>
-                          {empty && <Badge>Agotado</Badge>}
-                          {!r.active && <Badge tone="muted">Inactivo</Badge>}
-                          {notInFba && <Badge tone="warn">Sin stock en Amazon</Badge>}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="num">
-                    {units(OUTSIDE.reduce((t, loc) => t + (r.stock[loc] ?? 0), 0))}
-                    <div className="muted text-xs">{OUTSIDE.filter((loc) => (r.stock[loc] ?? 0) !== 0).map((loc) => `${LOCATION_LABELS[loc]}: ${units(r.stock[loc])}`).join(" · ")}</div>
-                  </td>
-                  <td className={`num ${(r.stock.fba_inbound ?? 0) === 0 ? "muted" : ""}`}>{units(r.stock.fba_inbound ?? 0)}</td>
-                  <td className="num">
-                    {units(r.stock.amazon_fba ?? 0)}
-                    {amazonSays.has(r.product_id) && amazonSays.get(r.product_id) !== (r.stock.amazon_fba ?? 0) && (
-                      <div className="text-xs mt-0.5 space-y-1">
-                        <div className="neg">Amazon dice {units(amazonSays.get(r.product_id))}</div>
-                        <ReconcileButton productId={r.product_id} label="Cuadrar" />
-                      </div>
-                    )}
-                  </td>
-                  <td className="num font-medium">{units(r.units_on_hand)}</td>
-                  <td className="num">{r.avg_cost ? money(r.avg_cost) : "—"}</td>
-                  <td className="num">{money(r.inventory_value)}</td>
-                  <td>
-                    {!empty && (
-                      <div className="flex gap-1">
-                        {Object.entries(r.stock).some(([loc, q]) => loc !== "amazon_fba" && q > 0) && (
-                          <RowLink href={`/envios/nuevo?product=${r.product_id}`} label="Enviar a Amazon" icon={Send} tone="primary" />
-                        )}
-                        <RowLink href={`/inventario/conteo?product=${r.product_id}`} label="Dar salida" icon={PackageMinus} />
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {rows.length === 0 && <tr><td colSpan={8} className="muted">No hay productos en esta vista. Las compras que registres aparecerán aquí.</td></tr>}
-          </tbody>
-        </table>
-      </section>
-      </>
+        <StockFlowTable products={rows} moves={(allMoves ?? []) as StockMove[]} amazonSays={amazonSays} />
       )}
 
       <section className="card overflow-x-auto">
@@ -220,10 +127,22 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
             <button className="btn-ghost text-sm">Ver</button>
           </form>
         </div>
-        <table className="data mt-2">
+        {/* Celular: lista compacta; la tabla queda para pantallas grandes */}
+        <ul className="sm:hidden mt-2 divide-y" style={{ borderColor: "var(--border)" }}>
+          {((moves ?? []) as unknown as M[]).filter((m) => m.qty !== 0).map((m) => (
+            <li key={m.id} className="flex justify-between gap-3 px-4 py-2.5" style={{ borderColor: "var(--border)" }}>
+              <span className="min-w-0">
+                <span className="block text-sm truncate">{m.products?.description}</span>
+                <span className="block muted text-xs">{date(m.occurred_on)} · {MOVEMENT_LABELS[m.movement] ?? m.movement} · {LOCATION_LABELS[m.location] ?? m.location}</span>
+              </span>
+              <span className={`text-sm font-semibold tabular-nums shrink-0 ${m.qty < 0 ? "neg" : "pos"}`}>{m.qty > 0 ? "+" : ""}{units(m.qty)}</span>
+            </li>
+          ))}
+        </ul>
+        <table className="data mt-2 hidden sm:table">
           <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Ubicación</th><th>Referencia</th><th className="num">Cantidad</th><th /></tr></thead>
           <tbody>
-            {((moves ?? []) as unknown as M[]).map((m) => (
+            {((moves ?? []) as unknown as M[]).filter((m) => m.qty !== 0).map((m) => (
               <tr key={m.id}>
                 <td className="whitespace-nowrap">{date(m.occurred_on)}</td>
                 <td>{m.products?.description}</td>
