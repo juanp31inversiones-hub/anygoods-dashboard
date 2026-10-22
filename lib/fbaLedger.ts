@@ -30,11 +30,12 @@ export async function fbaLedger(supabase: Supabase, onlyActive = true): Promise<
     evs.push(...((data ?? []) as typeof evs));
     if ((data ?? []).length < 1000) break;
   }
-  const [{ data: listings }, { data: inv }, { data: inbound }, { data: appItems }] = await Promise.all([
+  const [{ data: listings }, { data: inv }, { data: inbound }, { data: appItems }, { data: orders }] = await Promise.all([
     supabase.from("amazon_listings").select("sku, product_id, products(description, image_url, active)").not("product_id", "is", null),
     supabase.from("amazon_inventory").select("sku, fulfillable, reserved, unfulfillable, researching"),
     supabase.from("amazon_inbound_shipments").select("status, items"),
     supabase.from("fba_shipment_items").select("product_id, qty_shipped, qty_received, fba_shipments(status)"),
+    supabase.from("amazon_orders").select("items").eq("status", "Shipped"),
   ]);
   type L = { sku: string; product_id: string; products: { description: string; image_url: string | null; active: boolean } | null };
   const ls = (listings ?? []) as unknown as L[];
@@ -86,6 +87,13 @@ export async function fbaLedger(supabase: Supabase, onlyActive = true): Promise<
       if (e.description === "MISSING_FROM_INBOUND") r.reimbursedInbound += n;
     }
   }
+  // Vendidas = pedidos ya despachados (Amazon puede tardar días en reportar el pago); se usa el mayor de los dos datos
+  const shippedByProduct = new Map<string, number>();
+  for (const o of orders ?? []) for (const it of o.items as { sku: string; qty: number }[]) {
+    const pid = productOf.get(it.sku);
+    if (pid) shippedByProduct.set(pid, (shippedByProduct.get(pid) ?? 0) + it.qty);
+  }
+  for (const [pid, q] of shippedByProduct) { const r = row(pid); r.sold = Math.max(r.sold, q); }
   for (const i of inv ?? []) {
     const pid = productOf.get(i.sku);
     if (!pid) continue;

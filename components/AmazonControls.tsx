@@ -83,7 +83,7 @@ export function ReconcileButton({ productId, label = "Cuadrar con Amazon" }: { p
     <div className="inline-flex flex-col gap-1">
       <button className={productId ? "btn-ghost text-xs py-1 px-2" : "btn-primary"} disabled={pending}
         onClick={() => {
-          if (!confirm("Se registrarán como venta las unidades que Amazon reporta vendidas, y el resto de la diferencia como faltante. ¿Continuar?")) return;
+          if (!confirm("Se descuentan los pedidos ya despachados y lo que siga sin cuadrar se registra como faltante (o sobrante). ¿Continuar?")) return;
           start(async () => { const r = await reconcileFba(productId); setMsg({ ok: r.ok, text: r.message }); router.refresh(); });
         }}>
         <Scale size={productId ? 13 : 16} /> {pending ? "Cuadrando…" : label}
