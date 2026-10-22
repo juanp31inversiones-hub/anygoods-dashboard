@@ -10,7 +10,7 @@ export default async function NuevoEnvio({ searchParams }: { searchParams: Promi
     <div className="space-y-4">
       <BackLink href="/envios" label="Envíos FBA" />
       <div>
-        <h1 className="text-2xl font-semibold">Nuevo envío a Amazon</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">Nuevo envío a Amazon</h1>
         <p className="muted text-sm">Registra cada Shipment ID que genera Send to Amazon. Si Amazon divide tu plan en varios centros, crea un envío por cada uno.</p>
       </div>
       <FbaShipmentEditor products={products} defaultProduct={product} />

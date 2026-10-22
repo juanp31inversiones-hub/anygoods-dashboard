@@ -82,13 +82,15 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
         action={{ href: "/banco/nuevo", label: "Nuevo movimiento", icon: Plus }} />
 
       {/* Rango de fechas */}
-      <div className="flex flex-wrap gap-2 items-center">
+      <div className="space-y-2">
+      <div className="chips flex flex-wrap gap-2 items-center">
         {presets().map((p) => (
           <Link key={p.label} href={url({ from: p.from, to: p.to })} className="rounded-full px-3 py-1 border text-sm"
             style={activePreset === p.label ? { borderColor: "var(--accent)", color: "var(--accent)", fontWeight: 600 } : { borderColor: "var(--border)" }}>
             {p.label}
           </Link>
         ))}
+      </div>
         <form className="flex flex-wrap gap-2 items-center text-sm">
           {Object.entries(sp).filter(([k]) => !["from", "to"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
           <input type="date" name="from" defaultValue={from} className="input w-auto py-1" aria-label="Desde" />
@@ -155,7 +157,24 @@ export default async function Banco({ searchParams }: { searchParams: Promise<Pa
         {(q || who || cat || type || from || to) && <Link href="/banco" className="muted text-sm underline">Limpiar todo</Link>}
       </form>
 
-      <section className="card overflow-x-auto">
+      {/* Celular: lista compacta */}
+      <section className="card sm:hidden divide-y" style={{ borderColor: "var(--border)" }}>
+        {rows.map((r) => (
+          <Link key={r.id} href={`/banco/${r.id}`} className="flex justify-between gap-3 px-4 py-3" style={{ borderColor: "var(--border)" }}>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium truncate">{r.description}</span>
+              <span className="block muted text-xs">{date(r.txn_date)} · {r.category ? CATEGORY_LABELS[r.category] ?? r.category : "—"}{who_(r) ? ` · ${who_(r)}` : ""}</span>
+            </span>
+            <span className="text-right shrink-0">
+              <span className={`block text-sm font-semibold tabular-nums ${Number(r.amount) < 0 ? "neg" : "pos"}`}>{money(r.amount)}</span>
+              <span className="block muted text-xs tabular-nums">{money(balanceAfter.get(r.id))}</span>
+            </span>
+          </Link>
+        ))}
+        {rows.length === 0 && <p className="muted text-sm p-4">No hay movimientos con estos filtros.</p>}
+      </section>
+
+      <section className="card overflow-x-auto hidden sm:block">
         <table className="data min-w-[860px]">
           <thead>
             <tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Con quién</th><th className="num">Monto</th><th className="num">Saldo</th><th /></tr>

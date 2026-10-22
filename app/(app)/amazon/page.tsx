@@ -96,17 +96,20 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Amazon</h1>
-        <p className="muted text-sm">Datos de tu cuenta de Seller Central vía SP-API: inventario FBA, ventas, fees, devoluciones y reembolsos.</p>
+        <h1 className="text-xl md:text-2xl font-semibold">Amazon</h1>
+        <p className="muted text-sm">Ventas, ganancia, inventario y pagos de tu cuenta de Seller Central.</p>
       </div>
 
       {missing.length > 0 && (
         <div className="card p-4 text-sm neg flex gap-2"><AlertTriangle size={18} /> Faltan variables en Vercel: {missing.join(", ")}. Agrégalas y vuelve a publicar.</div>
       )}
 
-      <section className="card p-5 space-y-4">
+      <section className="card p-4 space-y-3">
         <SyncButtons />
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {lastBy("finances") && <p className="muted text-xs">Última sincronización: {new Date(lastBy("finances")!.started_at).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}</p>}
+        <details className="text-sm">
+        <summary className="muted text-xs cursor-pointer">Ver estado de cada parte</summary>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
           {(["connection", "inventory", "finances", "payouts"] as const).map((k) => {
             const r = lastBy(k);
             return (
@@ -122,6 +125,7 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
             );
           })}
         </div>
+        </details>
         {unlinked.length > 0 && (
           <p className="text-sm flex items-center gap-2" style={{ color: "var(--warn)" }}>
             <AlertTriangle size={16} /> {unlinked.length} SKU(s) sin vincular a un producto. <Link href="/amazon?tab=skus" className="link">Vincularlos</Link>
@@ -139,14 +143,16 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
       </div>
 
       {(tab === "rentabilidad" || tab === "cargos" || tab === "pedidos") && (
-        <div className="flex flex-wrap gap-2 text-sm items-center">
+        <div className="space-y-2">
+        <div className="chips flex flex-wrap gap-2 text-sm items-center">
           {PERIODS.map((p) => (
             <Link key={p.key} href={`/amazon?tab=${tab}&period=${p.key}`} className="rounded-full px-3 py-1 border"
               style={{ borderColor: "var(--border)", fontWeight: period === p.key ? 600 : 400, background: period === p.key ? "var(--accent-soft)" : undefined }}>
               {p.label}
             </Link>
           ))}
-          <form className="flex flex-wrap gap-2 items-center">
+        </div>
+          <form className="flex flex-wrap gap-2 items-center text-sm">
             <input type="hidden" name="tab" value={tab} />
             <input type="hidden" name="period" value="custom" />
             <input type="date" name="from" defaultValue={from} className="input w-auto py-1" aria-label="Desde" required />

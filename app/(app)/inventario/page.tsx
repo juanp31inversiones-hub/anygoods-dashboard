@@ -55,23 +55,23 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
         ]}
       />
 
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <section className="grid grid-cols-3 gap-2 sm:gap-3">
         {[
           { label: "Fuera de Amazon", value: OUTSIDE.reduce((t, l) => t + (totalsByLoc[l] ?? 0), 0), hint: "En el proveedor, el prep center o tu bodega. Listo para enviar." },
           { label: "Camino a Amazon", value: totalsByLoc.fba_inbound ?? 0, hint: "Enviado, aún no recibido por Amazon." },
           { label: "En Amazon", value: totalsByLoc.amazon_fba ?? 0, hint: "En los centros de Amazon, a la venta." },
         ].map((c) => (
-          <div key={c.label} className="card p-4">
+          <div key={c.label} className="card p-3 sm:p-4">
             <div className="muted text-xs">{c.label}</div>
-            <div className="text-2xl font-semibold mt-1 tabular-nums">{units(c.value)} <span className="text-sm font-normal muted">und</span></div>
-            <div className="muted text-xs mt-1">{c.hint}</div>
+            <div className="text-lg sm:text-2xl font-semibold mt-1 tabular-nums">{units(c.value)} <span className="text-xs sm:text-sm font-normal muted">und</span></div>
+            <div className="muted text-xs mt-1 hidden sm:block">{c.hint}</div>
           </div>
         ))}
       </section>
 
-      <div className="flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
+      <div className="chips flex gap-1 border-b overflow-x-auto" style={{ borderColor: "var(--border)" }}>
         {TABS.map((t) => (
-          <Link key={t.key} href={`/inventario?tab=${t.key}`} className="px-4 py-2 text-sm -mb-px border-b-2"
+          <Link key={t.key} href={`/inventario?tab=${t.key}`} className="px-4 py-2 text-sm -mb-px border-b-2 whitespace-nowrap"
             style={tab === t.key ? { borderColor: "var(--accent)", color: "var(--accent)", fontWeight: 600 } : { borderColor: "transparent", color: "var(--muted)" }}>
             {t.label}
           </Link>
@@ -79,7 +79,36 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
       </div>
 
       {tab === "amazon" ? <AmazonLedger rows={ledger} /> : (
-      <section className="card overflow-x-auto">
+      <>
+      {/* Celular: una tarjeta por producto */}
+      <section className="sm:hidden space-y-2">
+        {rows.map((r) => {
+          const outside = OUTSIDE.reduce((t, loc) => t + (r.stock[loc] ?? 0), 0);
+          return (
+            <Link key={r.product_id} href={`/productos/${r.product_id}`} className="card p-3 flex gap-3 items-center">
+              <span className="w-12 h-12 rounded shrink-0 overflow-hidden" style={{ background: "var(--bg)" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {r.image_url && <img src={r.image_url} alt="" className="w-full h-full object-contain" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium line-clamp-2">{r.description}</span>
+                <span className="block text-xs mt-1">
+                  <b>{units(r.stock.amazon_fba ?? 0)}</b> en Amazon · <b>{units(outside)}</b> fuera{(r.stock.fba_inbound ?? 0) ? ` · ${units(r.stock.fba_inbound)} en camino` : ""}
+                </span>
+                {amazonSays.has(r.product_id) && amazonSays.get(r.product_id) !== (r.stock.amazon_fba ?? 0) && (
+                  <span className="block text-xs neg">Amazon dice {units(amazonSays.get(r.product_id))}</span>
+                )}
+              </span>
+              <span className="text-right shrink-0">
+                <span className="block text-sm font-semibold">{units(r.units_on_hand)}</span>
+                <span className="block muted text-xs">{money(r.inventory_value)}</span>
+              </span>
+            </Link>
+          );
+        })}
+        {rows.length === 0 && <p className="muted text-sm">No hay productos en esta vista.</p>}
+      </section>
+      <section className="card overflow-x-auto hidden sm:block">
         <table className="data min-w-[900px]">
           <thead>
             <tr>
@@ -145,6 +174,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
           </tbody>
         </table>
       </section>
+      </>
       )}
 
       <section className="card overflow-x-auto">

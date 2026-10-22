@@ -18,7 +18,7 @@ export default async function EditarMovimiento({ params }: { params: Promise<{ i
     <div className="space-y-4 max-w-3xl">
       <BackLink href="/banco" label="Banco" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Editar movimiento</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">Editar movimiento</h1>
         <DeleteButton action={deleteTransaction.bind(null, id)} confirmText="¿Eliminar este movimiento bancario?" />
       </div>
       <TxnForm txn={txn} accounts={o.accounts} counterparties={o.counterparties} partners={o.partners} purchaseOrders={o.purchaseOrders} />

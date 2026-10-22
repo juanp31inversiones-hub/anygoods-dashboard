@@ -9,7 +9,7 @@ export default async function NuevaCompra() {
   return (
     <div className="space-y-4">
       <BackLink href="/compras" label="Compras" />
-      <h1 className="text-2xl font-semibold">Nueva orden de compra</h1>
+      <h1 className="text-xl md:text-2xl font-semibold">Nueva orden de compra</h1>
       <POForm suppliers={opts.counterparties.filter((c) => SUPPLIER_KINDS.includes(c.kind))} products={opts.products.filter((p) => p.active)} />
     </div>
   );

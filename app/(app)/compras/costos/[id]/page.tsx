@@ -18,7 +18,7 @@ export default async function EditarCosto({ params }: { params: Promise<{ id: st
     <div className="space-y-4 max-w-3xl">
       <BackLink href="/compras/costos" label="Costos adicionales" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Editar costo</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">Editar costo</h1>
         <DeleteButton action={deleteCost.bind(null, id)} confirmText="¿Eliminar este costo? Se recalculará el costo neto de los productos." />
       </div>
       <CostForm cost={cost} purchaseOrders={o.purchaseOrders} counterparties={o.counterparties} transactions={o.transactions} />

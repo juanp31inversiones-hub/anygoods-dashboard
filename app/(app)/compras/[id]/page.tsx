@@ -65,7 +65,7 @@ export default async function EditarCompra({ params }: { params: Promise<{ id: s
     <div className="space-y-4">
       <BackLink href="/compras" label="Compras" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Orden {po.invoice_number ?? ""}</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">Orden {po.invoice_number ?? ""}</h1>
         <DeleteButton action={deletePurchaseOrder.bind(null, id)} confirmText="¿Eliminar esta orden? Se borran sus líneas y movimientos de inventario, y se desvinculan los pagos." />
       </div>
       <p className="muted text-sm">Al guardar se recalcula el costo neto por unidad de cada producto con sus costos adicionales.</p>

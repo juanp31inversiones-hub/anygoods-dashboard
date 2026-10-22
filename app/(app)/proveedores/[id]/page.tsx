@@ -46,7 +46,7 @@ export default async function EditarProveedor({ params }: { params: Promise<{ id
     <div className="space-y-6 max-w-4xl">
       <BackLink href="/proveedores" label="Proveedores" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{cp.name}</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">{cp.name}</h1>
         <DeleteButton action={deleteCounterparty.bind(null, id)} confirmText={`¿Eliminar ${cp.name}?`} />
       </div>
       {isAgent && <AgentAccount counterpartyId={id} name={cp.name} rows={ledger} />}

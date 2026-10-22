@@ -32,7 +32,7 @@ export default async function Conteo({ searchParams }: { searchParams: Promise<{
     <div className="space-y-4">
       <BackLink href="/inventario" label="Inventario" />
       <div>
-        <h1 className="text-2xl font-semibold">{product ? "Dar salida a un producto" : "Conteo y salidas de inventario"}</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">{product ? "Dar salida a un producto" : "Conteo y salidas de inventario"}</h1>
         <p className="muted text-sm">Ajusta el sistema a lo que realmente tienes.</p>
       </div>
       <StockCount rows={rows} focus={product} receivers={receivers ?? []} />

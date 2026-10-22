@@ -58,3 +58,15 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   .link:hover { text-decoration: underline; }
 }
 select.input option { background: var(--surface); color: var(--text); }
+
+/* Celular: más compacto y legible */
+@media (max-width: 640px) {
+  html { -webkit-text-size-adjust: 100%; }
+  table.data { font-size: 0.8125rem; }
+  table.data th, table.data td { padding: 0.45rem 0.5rem; }
+  .card { border-radius: 14px; }
+  /* Filtros en una sola fila que se desliza */
+  .chips { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; margin-inline: -1rem; padding-inline: 1rem; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips > * { flex-shrink: 0; }
+}

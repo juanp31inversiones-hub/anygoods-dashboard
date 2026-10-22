@@ -84,13 +84,13 @@ export default async function Dashboard() {
   return (
     <div className="space-y-8 max-w-5xl">
       <section>
-        <h1 className="text-2xl font-semibold">Así va AnyGoods</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">Así va AnyGoods</h1>
         <p className="muted text-sm">Resumen en lenguaje simple. Los datos de Amazon se actualizan con “Sincronizar todo” en la página Amazon.</p>
       </section>
 
       {/* 1. Plata */}
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg">1. ¿Cuánto vale hoy la empresa?</h2>
+        <h2 className="font-semibold text-base md:text-lg">1. ¿Cuánto vale hoy la empresa?</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Card label="En el banco (Mercury)" value={money(cash)} hint="Debe coincidir con tu saldo real" />
           <Card label="Amazon te debe" value={money(amazonPending)} hint="Llega en el próximo pago" />
@@ -106,7 +106,7 @@ export default async function Dashboard() {
 
       {/* 2. Ganancia */}
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg">2. ¿Estamos ganando o perdiendo en Amazon?</h2>
+        <h2 className="font-semibold text-base md:text-lg">2. ¿Estamos ganando o perdiendo en Amazon?</h2>
         <div className="grid lg:grid-cols-2 gap-3">
           <PnlCard title="Últimos 30 días" p={pnl30} />
           <PnlCard title="Desde el inicio (may-2025)" p={pnlAll} />
@@ -115,14 +115,14 @@ export default async function Dashboard() {
 
       {/* 3. Inventario */}
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg">3. ¿Qué pasó con lo que compramos?</h2>
+        <h2 className="font-semibold text-base md:text-lg">3. ¿Qué pasó con lo que compramos?</h2>
         <p className="muted text-sm">Por producto: lo comprado, menos lo vendido y lo perdido, igual a lo que tienes hoy y dónde está.</p>
         <ProductFlow products={stock.filter((r) => Number(r.units_on_hand) !== 0)} moves={(flowMoves.data ?? []) as FlowMove[]} />
       </section>
 
       {/* 4. Pendientes */}
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg">4. ¿Qué tengo que hacer?</h2>
+        <h2 className="font-semibold text-base md:text-lg">4. ¿Qué tengo que hacer?</h2>
         {todos.length === 0 ? (
           <div className="card p-4 flex items-center gap-2 pos"><CheckCircle2 size={18} /> Todo en orden.</div>
         ) : (
@@ -144,7 +144,7 @@ export default async function Dashboard() {
 
       {/* Guía */}
       <section className="space-y-3">
-        <h2 className="font-semibold text-lg">¿Para qué sirve cada sección?</h2>
+        <h2 className="font-semibold text-base md:text-lg">¿Para qué sirve cada sección?</h2>
         <div className="grid sm:grid-cols-2 gap-2">
           {GUIDE.map((g) => (
             <Link key={g.href} href={g.href} className="card p-3 hover:shadow-sm transition-shadow">
@@ -200,40 +200,41 @@ function Card({ label, value, hint }: { label: string; value: string; hint?: str
   return (
     <div className="card p-4">
       <div className="muted text-xs">{label}</div>
-      <div className="text-xl font-semibold mt-1 tabular-nums">{value}</div>
+      <div className="text-lg md:text-xl font-semibold mt-1 tabular-nums">{value}</div>
       {hint && <div className="muted text-xs mt-1 line-clamp-1">{hint}</div>}
     </div>
   );
 }
 
 function PnlCard({ title, p }: { title: string; p: Pnl }) {
-  const line = (label: string, v: number, sign: "+" | "−" | "=", strong = false) => (
-    <tr className={strong ? "font-semibold" : ""}>
-      <td className={strong ? "" : "muted"}>{sign === "=" ? "" : sign} {label}</td>
-      <td className={`num ${sign === "=" ? (v < 0 ? "neg" : "pos") : ""}`}>{money(v)}</td>
-    </tr>
+  const line = (label: string, v: number, sign: "+" | "−" | "=", hint?: string) => (
+    <div className={`flex justify-between gap-3 py-2 border-b ${sign === "=" ? "font-semibold" : ""}`} style={{ borderColor: "var(--border)" }}>
+      <span className={sign === "=" ? "" : "muted"}>
+        {sign === "=" ? "" : `${sign} `}{label}
+        {hint && <span className="block text-xs muted font-normal">{hint}</span>}
+      </span>
+      <span className={`tabular-nums whitespace-nowrap ${sign === "=" ? (v < 0 ? "neg" : "pos") : ""}`}>{money(v)}</span>
+    </div>
   );
   return (
-    <div className="card p-4 space-y-3">
+    <div className="card p-4">
       <div className="flex items-baseline justify-between">
         <h3 className="font-medium">{title}</h3>
-        <span className="muted text-xs">{units(p.units)} unidades vendidas</span>
+        <span className="muted text-xs">{units(p.units)} und vendidas</span>
       </div>
-      <p className={`text-lg font-semibold ${p.result < 0 ? "neg" : "pos"}`}>
+      <p className={`text-xl font-semibold mt-1 mb-2 ${p.result < 0 ? "neg" : "pos"}`}>
         {p.result < 0 ? `Perdiste ${money(-p.result)}` : `Ganaste ${money(p.result)}`}
       </p>
-      <table className="data text-sm">
-        <tbody>
-          {line("Vendiste a clientes", p.sales, "+")}
-          {line("Amazon se quedó (comisiones, fees y devoluciones)", p.keptByAmazon, "−")}
-          {p.reimbursed !== 0 && line("Amazon te reembolsó (unidades perdidas)", p.reimbursed, "+")}
-          {line("Costo de los productos vendidos", p.cogs, "−")}
-          {line("Ganancia de los productos", p.productProfit, "=", true)}
-          {p.removals !== 0 && line("Retiros de inventario", p.removals, "−")}
-          {line("Otros cargos (envío a Amazon, almacenamiento, suscripción, etiquetas)", p.otherCharges, "−")}
-          {line("Resultado", p.result, "=", true)}
-        </tbody>
-      </table>
+      <div className="text-sm">
+        {line("Ventas", p.sales, "+")}
+        {line("Amazon se quedó", p.keptByAmazon, "−", "Comisiones, fees FBA y devoluciones")}
+        {p.reimbursed !== 0 && line("Amazon te reembolsó", p.reimbursed, "+", "Unidades perdidas o dañadas")}
+        {line("Costo del producto", p.cogs, "−")}
+        {line("Ganancia de los productos", p.productProfit, "=")}
+        {p.removals !== 0 && line("Retiros de inventario", p.removals, "−")}
+        {line("Otros cargos de Amazon", p.otherCharges, "−", "Envío a Amazon, almacenamiento, suscripción")}
+        {line("Resultado", p.result, "=")}
+      </div>
     </div>
   );
 }

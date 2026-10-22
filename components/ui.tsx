@@ -14,7 +14,7 @@ export function PageHeader({ title, subtitle, actions, action }: {
   return (
     <div className="flex flex-wrap items-end gap-3 justify-between">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold">{title}</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">{title}</h1>
         {subtitle && <p className="muted text-sm mt-0.5">{subtitle}</p>}
       </div>
       {all.length > 0 && (

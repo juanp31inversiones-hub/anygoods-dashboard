@@ -20,7 +20,7 @@ export default async function EditarEnvio({ params }: { params: Promise<{ id: st
       <BackLink href="/envios" label="Envíos FBA" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{sh.shipment_id || sh.name || "Envío"}</h1>
+          <h1 className="text-xl md:text-2xl font-semibold">{sh.shipment_id || sh.name || "Envío"}</h1>
           <p className="muted text-sm">{SHIPMENT_STATUS_LABELS[sh.status]}{sh.destination_fc ? ` · ${sh.destination_fc}` : ""}</p>
         </div>
         <DeleteButton action={deleteFbaShipment.bind(null, id)} confirmText="¿Eliminar este envío? Sus unidades vuelven a la ubicación de origen." />

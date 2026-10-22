@@ -32,7 +32,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
     <div className="space-y-6 max-w-4xl">
       <BackLink href="/productos" label="Productos" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{product.description}</h1>
+        <h1 className="text-xl md:text-2xl font-semibold">{product.description}</h1>
         <div className="flex flex-wrap gap-2 items-start">
           {Number(stock?.units_on_hand ?? 0) !== 0 && (
             <>

@@ -9,7 +9,7 @@ export default async function NuevoMovimientoInventario({ searchParams }: { sear
   return (
     <div className="space-y-4 max-w-3xl">
       <BackLink href="/inventario" label="Inventario" />
-      <h1 className="text-2xl font-semibold">Registrar movimiento de inventario</h1>
+      <h1 className="text-xl md:text-2xl font-semibold">Registrar movimiento de inventario</h1>
       <MovementForm products={data ?? []} defaultProduct={product} />
     </div>
   );
