@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Compras, inventario, banco y números de AnyGoods LLC",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "AnyGoods", statusBarStyle: "default" },
-  icons: { icon: "/icon.png", apple: "/icon.png" },
+  icons: { icon: "/icon.png", apple: "/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
