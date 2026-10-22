@@ -7,6 +7,7 @@ import { AMAZON_TO_APP_STATUS, syncInbound, type InboundItem } from "@/lib/amazo
 import { syncOrders } from "@/lib/amazon/orders";
 import { saveFbaShipment, type FbaShipmentPayload } from "@/lib/actions";
 import { loadShipmentPayload } from "@/lib/shipmentPayload";
+import { amazonDay } from "@/lib/tz";
 
 export type SyncResult = { ok: boolean; message: string; complete?: boolean };
 
@@ -263,7 +264,7 @@ async function autoSalesMovements(supabase: Supa) {
     const pid = productOf.get(e.sku)!;
     const c = cutoff.get(pid);
     if (c && e.posted_date <= c) continue;
-    const day = new Date(Date.parse(e.posted_date) - 5 * 3_600_000).toISOString().slice(0, 10); // día en Colombia
+    const day = amazonDay(e.posted_date); // día según Amazon (hora del Pacífico)
     const k = `${pid}|${day}`;
     want.set(k, (want.get(k) ?? 0) - Number(e.quantity ?? 0));
   }

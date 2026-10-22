@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui";
 import { LinkSelect, ReconcileButton, SyncButtons } from "@/components/AmazonControls";
 import { date, money, units } from "@/lib/format";
 import { missingCredentials } from "@/lib/amazon/spapi";
+import { addDays, amazonDay, amazonDayStart } from "@/lib/tz";
 import { AmazonOrders, type OrderFees, type OrderRow } from "@/components/AmazonOrders";
 
 export const maxDuration = 300;
@@ -22,25 +23,21 @@ const PERIODS = [
   { key: "month", label: "Este mes" }, { key: "lastmonth", label: "Mes pasado" }, { key: "90", label: "90 días" },
   { key: "year", label: "Este año" }, { key: "365", label: "12 meses" }, { key: "all", label: "Todo" },
 ];
-const TZ_MS = 5 * 3_600_000; // días según la hora de Colombia (UTC−5)
-
-/** Convierte el periodo elegido (o un rango propio desde/hasta) en fechas ISO [since, until). */
+/** Convierte el periodo elegido (o un rango propio desde/hasta) en fechas ISO [since, until), con los días de Amazon (hora del Pacífico). */
 function periodRange(period: string, from?: string, to?: string): { since: string; until?: string } {
-  const day = 86_400_000;
-  const startOf = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + TZ_MS).toISOString();
-  if (period === "custom" && from) return { since: startOf(from), until: to ? new Date(Date.parse(startOf(to)) + day).toISOString() : undefined };
-  const local = new Date(Date.now() - TZ_MS);
-  const y = local.getUTCFullYear(), m = local.getUTCMonth();
-  const today = Date.UTC(y, m, local.getUTCDate()) + TZ_MS;
-  const iso = (ms: number) => new Date(ms).toISOString();
+  const iso = (day: string) => new Date(amazonDayStart(day)).toISOString();
+  if (period === "custom" && from) return { since: iso(from), until: to ? iso(addDays(to, 1)) : undefined };
+  const today = amazonDay(Date.now());
+  const month = `${today.slice(0, 7)}-01`;
+  const prevMonth = (() => { const d = new Date(`${month}T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); })();
   switch (period) {
     case "today": return { since: iso(today) };
-    case "yesterday": return { since: iso(today - day), until: iso(today) };
-    case "month": return { since: iso(Date.UTC(y, m, 1) + TZ_MS) };
-    case "lastmonth": return { since: iso(Date.UTC(y, m - 1, 1) + TZ_MS), until: iso(Date.UTC(y, m, 1) + TZ_MS) };
-    case "year": return { since: iso(Date.UTC(y, 0, 1) + TZ_MS) };
+    case "yesterday": return { since: iso(addDays(today, -1)), until: iso(today) };
+    case "month": return { since: iso(month) };
+    case "lastmonth": return { since: iso(prevMonth), until: iso(month) };
+    case "year": return { since: iso(`${today.slice(0, 4)}-01-01`) };
     case "all": return { since: "2000-01-01" };
-    default: return { since: iso(today - (Number(period) - 1) * day) };
+    default: return { since: iso(addDays(today, -(Number(period) - 1))) };
   }
 }
 const KIND_LABEL: Record<string, string> = { connection: "Conexión", inventory: "Inventario FBA", finances: "Ventas y fees", payouts: "Pagos de Amazon" };

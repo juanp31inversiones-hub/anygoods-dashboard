@@ -1,11 +1,12 @@
 import { money, units } from "@/lib/format";
+import { amazonDay } from "@/lib/tz";
 import { Badge } from "@/components/ui";
 import type { OrderLine } from "@/lib/amazon/orders";
 
 export type OrderRow = { order_id: string; purchase_date: string; status: string; items: OrderLine[]; items_synced: boolean };
 
-const TZ_MS = 5 * 3_600_000; // Colombia (UTC−5), igual que el celular
-const localDay = (iso: string) => new Date(Date.parse(iso) - TZ_MS).toISOString().slice(0, 10);
+// Días de Amazon (hora del Pacífico), igual que Seller Central y su app
+const localDay = (iso: string) => amazonDay(iso);
 
 /** Ventas por fecha de compra, como "Units ordered" y "Sales" de Seller Central. */
 export type OrderFees = { byOrder: Map<string, number>; perUnit: Map<string, number> };
