@@ -19,13 +19,15 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
   until?: string;
   nameOf: (sku: string, title: string | null) => string;
 }) {
-  // Precio estimado para pedidos pendientes (Amazon no da el precio hasta que se cobra)
-  const priced = new Map<string, { sum: number; qty: number }>();
-  for (const o of orders) for (const i of o.items) if (i.price != null && i.qty) {
-    const p = priced.get(i.sku) ?? { sum: 0, qty: 0 };
-    p.sum += i.price; p.qty += i.qty; priced.set(i.sku, p);
+  // Pedidos pendientes: Amazon aún no da el precio; se usa el último precio cobrado de ese SKU (como hace Seller Central).
+  // Pedidos ya enviados sin precio (reemplazos o pedidos gratis) cuentan $0.
+  const lastPrice = new Map<string, number>();
+  for (const o of [...orders].sort((a, b) => a.purchase_date.localeCompare(b.purchase_date))) {
+    for (const i of o.items) if (i.price != null && i.qty) lastPrice.set(i.sku, i.price / i.qty);
   }
-  const priceOf = (i: OrderLine) => i.price ?? (priced.get(i.sku) ? (priced.get(i.sku)!.sum / priced.get(i.sku)!.qty) * i.qty : 0);
+  const statusOf = new Map<OrderLine, string>();
+  for (const o of orders) for (const i of o.items) statusOf.set(i, o.status);
+  const priceOf = (i: OrderLine) => i.price ?? (statusOf.get(i) === "Pending" ? (lastPrice.get(i.sku) ?? 0) * i.qty : 0);
   const live = orders.filter((o) => o.status !== "Canceled");
   const totals = (list: OrderRow[]) => ({
     units: list.reduce((a, o) => a + o.items.reduce((b, i) => b + i.qty, 0), 0),
@@ -49,12 +51,17 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
   const inRange = orders.filter((o) => o.purchase_date >= since && (!until || o.purchase_date < until));
   const liveRange = inRange.filter((o) => o.status !== "Canceled");
   const byDay = new Map<string, number>();
-  for (const o of liveRange) byDay.set(localDay(o.purchase_date), (byDay.get(localDay(o.purchase_date)) ?? 0) + o.items.reduce((b, i) => b + i.qty, 0));
+  const salesDay = new Map<string, number>();
+  for (const o of liveRange) {
+    const d = localDay(o.purchase_date);
+    byDay.set(d, (byDay.get(d) ?? 0) + o.items.reduce((b, i) => b + i.qty, 0));
+    salesDay.set(d, (salesDay.get(d) ?? 0) + o.items.reduce((b, i) => b + priceOf(i), 0));
+  }
   const days: string[] = [];
   for (let d = Date.parse(`${localDay(since)}T12:00:00Z`); d <= Date.parse(`${until ? localDay(new Date(Date.parse(until) - 1).toISOString()) : today}T12:00:00Z`); d += 86_400_000) {
     days.push(new Date(d).toISOString().slice(0, 10));
   }
-  const maxDay = Math.max(1, ...days.map((d) => byDay.get(d) ?? 0));
+  const maxDay = Math.max(1, ...days.map((d) => salesDay.get(d) ?? 0));
   const byProduct = new Map<string, { units: number; sales: number }>();
   for (const o of liveRange) for (const i of o.items) {
     const k = nameOf(i.sku, i.title);
@@ -71,25 +78,26 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
         {cards.map((c) => (
           <div key={c.label} className="card p-4">
             <div className="muted text-xs">{c.label}</div>
-            <div className="text-2xl font-semibold mt-1 tabular-nums">{units(c.t.units)} <span className="text-sm font-normal muted">und</span></div>
-            <div className="text-sm tabular-nums">{money(c.t.sales)} <span className="muted">· {c.t.orders} pedidos</span></div>
+            <div className="text-2xl font-semibold mt-1 tabular-nums">{money(c.t.sales)}</div>
+            <div className="text-sm tabular-nums"><b>{units(c.t.units)}</b> unidades <span className="muted">· {c.t.orders} pedidos</span></div>
           </div>
         ))}
       </section>
 
       <section className="card p-4 space-y-3">
         <div className="flex justify-between items-baseline">
-          <h3 className="font-medium">Unidades pedidas por día</h3>
+          <h3 className="font-medium">Ventas por día <span className="muted text-xs font-normal">(el número arriba de cada barra son unidades)</span></h3>
           <span className="text-sm"><b>{units(t.units)}</b> und · <b>{money(t.sales)}</b> en el periodo</span>
         </div>
         {days.length <= 62 ? (
           <div className="flex items-end gap-[3px] h-36">
             {days.map((d) => {
               const v = byDay.get(d) ?? 0;
+              const $ = salesDay.get(d) ?? 0;
               return (
-                <div key={d} className="flex-1 flex flex-col items-center justify-end h-full" title={`${d}: ${v} und`}>
+                <div key={d} className="flex-1 flex flex-col items-center justify-end h-full" title={`${d}: ${money($)} · ${v} und`}>
                   {v > 0 && <span className="text-[10px] muted">{v}</span>}
-                  <div className="w-full rounded-t" style={{ height: `${(v / maxDay) * 100}%`, minHeight: v ? 3 : 1, background: v ? "var(--accent)" : "var(--border)" }} />
+                  <div className="w-full rounded-t" style={{ height: `${($ / maxDay) * 100}%`, minHeight: v ? 3 : 1, background: v ? "var(--accent)" : "var(--border)" }} />
                 </div>
               );
             })}
@@ -134,7 +142,7 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
           </table>
         </section>
       </div>
-      <p className="muted text-xs">Ventas = precio de los productos pedidos (sin impuestos), por fecha de compra en hora de Colombia, como en la app de Seller Central. Los pedidos pendientes usan el precio habitual del producto. La utilidad real está en la pestaña Rentabilidad.</p>
+      <p className="muted text-xs">Igual que “Product sales” y “Units ordered” del celular: precio de lo que pidieron los clientes (sin impuestos ni envío), por día de compra. Es lo vendido, no la ganancia: la ganancia está en “Rentabilidad”.</p>
     </div>
   );
 }

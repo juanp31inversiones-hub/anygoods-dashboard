@@ -10,7 +10,7 @@ import { AmazonOrders, type OrderRow } from "@/components/AmazonOrders";
 export const maxDuration = 300;
 
 const TABS = [
-  { key: "pedidos", label: "Ventas (como el celular)" },
+  { key: "pedidos", label: "Ventas" },
   { key: "rentabilidad", label: "Rentabilidad por producto" },
   { key: "inventario", label: "Inventario FBA" },
   { key: "pagos", label: "Pagos vs banco" },
