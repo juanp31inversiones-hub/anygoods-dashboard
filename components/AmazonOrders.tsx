@@ -8,11 +8,15 @@ const TZ_MS = 5 * 3_600_000; // Colombia (UTC−5), igual que el celular
 const localDay = (iso: string) => new Date(Date.parse(iso) - TZ_MS).toISOString().slice(0, 10);
 
 /** Ventas por fecha de compra, como "Units ordered" y "Sales" de Seller Central. */
-export function AmazonOrders({ orders, since, until, nameOf }: {
+export type OrderFees = { byOrder: Map<string, number>; perUnit: Map<string, number> };
+
+export function AmazonOrders({ orders, since, until, nameOf, costOfSku, fees }: {
   orders: OrderRow[];
   since: string;
   until?: string;
   nameOf: (sku: string, title: string | null) => string;
+  costOfSku: (sku: string) => number;
+  fees: OrderFees;   // fees reales por pedido (ya despachado) y promedio por unidad para estimar los demás
 }) {
   // Pedidos pendientes: Amazon aún no da el precio; se usa el último precio cobrado de ese SKU (como hace Seller Central).
   // Pedidos ya enviados sin precio (reemplazos o pedidos gratis) cuentan $0.
@@ -23,7 +27,6 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
   const statusOf = new Map<OrderLine, string>();
   for (const o of orders) for (const i of o.items) statusOf.set(i, o.status);
   const priceOf = (i: OrderLine) => i.price ?? (statusOf.get(i) === "Pending" ? (lastPrice.get(i.sku) ?? 0) * i.qty : 0);
-  const live = orders.filter((o) => o.status !== "Canceled");
   const totals = (list: OrderRow[]) => ({
     units: list.reduce((a, o) => a + o.items.reduce((b, i) => b + i.qty, 0), 0),
     sales: list.reduce((a, o) => a + o.items.reduce((b, i) => b + priceOf(i), 0), 0),
@@ -31,16 +34,6 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
   });
 
   const today = localDay(new Date().toISOString());
-  const yesterday = localDay(new Date(Date.now() - 86_400_000).toISOString());
-  const month = today.slice(0, 7);
-  const prevMonthDate = new Date(`${month}-01T12:00:00Z`); prevMonthDate.setUTCMonth(prevMonthDate.getUTCMonth() - 1);
-  const prevMonth = prevMonthDate.toISOString().slice(0, 7);
-  const cards = [
-    { label: "Hoy", t: totals(live.filter((o) => localDay(o.purchase_date) === today)) },
-    { label: "Ayer", t: totals(live.filter((o) => localDay(o.purchase_date) === yesterday)) },
-    { label: "Este mes", t: totals(live.filter((o) => localDay(o.purchase_date).startsWith(month))) },
-    { label: "Mes pasado", t: totals(live.filter((o) => localDay(o.purchase_date).startsWith(prevMonth))) },
-  ];
 
   // Periodo elegido
   const inRange = orders.filter((o) => o.purchase_date >= since && (!until || o.purchase_date < until));
@@ -57,13 +50,31 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
     days.push(new Date(d).toISOString().slice(0, 10));
   }
   const maxDay = Math.max(1, ...days.map((d) => salesDay.get(d) ?? 0));
-  const byProduct = new Map<string, { units: number; sales: number }>();
-  for (const o of liveRange) for (const i of o.items) {
-    const k = nameOf(i.sku, i.title);
-    const p = byProduct.get(k) ?? { units: 0, sales: 0 };
-    p.units += i.qty; p.sales += priceOf(i); byProduct.set(k, p);
-  }
+
   const t = totals(liveRange);
+  // Ganancia del periodo: ventas − lo que Amazon se queda − costo del producto
+  let feesTotal = 0, cost = 0, estimated = 0;
+  const feeOf = (o: OrderRow) => {
+    if (fees.byOrder.has(o.order_id)) return fees.byOrder.get(o.order_id)!;
+    estimated++;
+    return o.items.reduce((b, i) => b + (fees.perUnit.get(i.sku) ?? 0) * i.qty, 0);
+  };
+  const productStats = new Map<string, { units: number; sales: number; fees: number; cost: number }>();
+  for (const o of liveRange) {
+    const f = feeOf(o);
+    const oUnits = o.items.reduce((b, i) => b + i.qty, 0) || 1;
+    feesTotal += f;
+    for (const i of o.items) {
+      const c = costOfSku(i.sku) * i.qty;
+      cost += c;
+      const k = nameOf(i.sku, i.title);
+      const ps = productStats.get(k) ?? { units: 0, sales: 0, fees: 0, cost: 0 };
+      ps.units += i.qty; ps.sales += priceOf(i); ps.fees += (f * i.qty) / oUnits; ps.cost += c;
+      productStats.set(k, ps);
+    }
+  }
+  const profit = t.sales - feesTotal - cost;
+  const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
   // Resumen por día: pedidos por estado
   const dayMap = new Map<string, { day: string; orders: number; units: number; sales: number; shipped: number; pending: number; cancelled: number }>();
   for (const o of inRange) {
@@ -85,13 +96,26 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
     <div className="space-y-4">
       {loading && <p className="muted text-xs">Algunos pedidos aún se están leyendo; pulsa “Sincronizar todo” para completarlos.</p>}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <div key={c.label} className="card p-4">
-            <div className="muted text-xs">{c.label}</div>
-            <div className="text-2xl font-semibold mt-1 tabular-nums">{money(c.t.sales)}</div>
-            <div className="text-sm tabular-nums"><b>{units(c.t.units)}</b> unidades <span className="muted">· {c.t.orders} pedidos</span></div>
-          </div>
-        ))}
+        <div className="card p-4">
+          <div className="muted text-xs">Ventas</div>
+          <div className="text-2xl font-semibold mt-1 tabular-nums">{money(t.sales)}</div>
+          <div className="text-sm"><b>{units(t.units)}</b> unidades <span className="muted">· {t.orders} pedidos</span></div>
+        </div>
+        <div className="card p-4">
+          <div className="muted text-xs">Amazon se queda</div>
+          <div className="text-2xl font-semibold mt-1 tabular-nums neg">{money(feesTotal)}</div>
+          <div className="text-sm muted">{t.sales ? pct(feesTotal / t.sales) : "—"} de las ventas{estimated ? ` · ${estimated} pedido${estimated === 1 ? "" : "s"} estimado${estimated === 1 ? "" : "s"}` : ""}</div>
+        </div>
+        <div className="card p-4">
+          <div className="muted text-xs">Costo del producto</div>
+          <div className="text-2xl font-semibold mt-1 tabular-nums">{money(cost)}</div>
+          <div className="text-sm muted">{t.units ? `${money(cost / t.units)} por unidad` : "—"}</div>
+        </div>
+        <div className="card p-4" style={{ borderColor: profit < 0 ? "var(--neg)" : "var(--pos)" }}>
+          <div className="muted text-xs">Ganancia</div>
+          <div className={`text-2xl font-semibold mt-1 tabular-nums ${profit < 0 ? "neg" : "pos"}`}>{money(profit)}</div>
+          <div className="text-sm">Margen <b>{t.sales ? pct(profit / t.sales) : "—"}</b> · ROI <b>{cost ? pct(profit / cost) : "—"}</b></div>
+        </div>
       </section>
 
       <section className="card p-4 space-y-3">
@@ -119,15 +143,23 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
       </section>
 
       <div className="grid lg:grid-cols-2 gap-3">
-        <section className="card overflow-x-auto">
+        <section className="card overflow-x-auto lg:col-span-2">
           <h3 className="font-medium px-4 pt-4">Por producto</h3>
           <table className="data mt-2">
-            <thead><tr><th>Producto</th><th className="num">Unidades</th><th className="num">Ventas</th></tr></thead>
+            <thead><tr><th>Producto</th><th className="num">Unidades</th><th className="num">Ventas</th><th className="num">Ganancia</th><th className="num">Margen</th><th className="num">ROI</th></tr></thead>
             <tbody>
-              {[...byProduct.entries()].sort((a, b) => b[1].units - a[1].units).map(([name, p]) => (
-                <tr key={name}><td>{name}</td><td className="num">{units(p.units)}</td><td className="num">{money(p.sales)}</td></tr>
-              ))}
-              {byProduct.size === 0 && <tr><td colSpan={3} className="muted">Sin pedidos en este periodo.</td></tr>}
+              {[...productStats.entries()].sort((a, b) => b[1].sales - a[1].sales).map(([name, p]) => {
+                const g = p.sales - p.fees - p.cost;
+                return (
+                  <tr key={name}>
+                    <td>{name}</td><td className="num">{units(p.units)}</td><td className="num">{money(p.sales)}</td>
+                    <td className={`num ${g < 0 ? "neg" : "pos"}`}>{money(g)}</td>
+                    <td className="num">{p.sales ? pct(g / p.sales) : "—"}</td>
+                    <td className="num">{p.cost ? pct(g / p.cost) : "—"}</td>
+                  </tr>
+                );
+              })}
+              {productStats.size === 0 && <tr><td colSpan={6} className="muted">Sin pedidos en este periodo.</td></tr>}
             </tbody>
           </table>
         </section>

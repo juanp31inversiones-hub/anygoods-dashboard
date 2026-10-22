@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui";
 import { LinkSelect, ReconcileButton, SyncButtons } from "@/components/AmazonControls";
 import { date, money, units } from "@/lib/format";
 import { missingCredentials } from "@/lib/amazon/spapi";
-import { AmazonOrders, type OrderRow } from "@/components/AmazonOrders";
+import { AmazonOrders, type OrderFees, type OrderRow } from "@/components/AmazonOrders";
 
 export const maxDuration = 300;
 
@@ -161,7 +161,8 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
       )}
 
       {tab === "pedidos" && (
-        <AmazonOrders orders={(orders ?? []) as OrderRow[]} since={since} until={until}
+        <AmazonOrders orders={(orders ?? []) as OrderRow[]} since={since} until={until} fees={tab === "pedidos" ? await orderFees(supabase, since) : { byOrder: new Map(), perUnit: new Map() }}
+          costOfSku={(sku) => costOf.get(productOfSku.get(sku) ?? "") ?? 0}
           nameOf={(sku, title) => productById.get(productOfSku.get(sku) ?? "")?.description ?? title?.slice(0, 60) ?? sku} />
       )}
       {tab === "rentabilidad" && <Profitability evs={evs} productOfSku={productOfSku} productById={productById} costOf={costOf} />}
@@ -446,4 +447,28 @@ async function allEvents(supabase: Awaited<ReturnType<typeof createClient>>, sin
     rows.push(...((data ?? []) as Ev[]));
     if ((data ?? []).length < 1000) return { data: rows, error: null };
   }
+}
+
+/** Fees reales por pedido ya despachado y fee promedio por unidad de cada SKU (últimos 90 días) para estimar pendientes. */
+async function orderFees(supabase: Awaited<ReturnType<typeof createClient>>, since: string): Promise<OrderFees> {
+  const from90 = new Date(Date.now() - 90 * 86_400_000).toISOString();
+  const start = since < from90 ? since : from90;
+  const rows: { order_id: string | null; sku: string | null; quantity: number | null; fba_fee: number; referral_fee: number; other_fees: number }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabase.from("amazon_financial_events").select("order_id, sku, quantity, fba_fee, referral_fee, other_fees")
+      .eq("event_type", "shipment").gte("posted_date", start).order("id").range(from, from + 999);
+    rows.push(...((data ?? []) as typeof rows));
+    if ((data ?? []).length < 1000) break;
+  }
+  const byOrder = new Map<string, number>();
+  const per = new Map<string, { fee: number; qty: number }>();
+  for (const r of rows) {
+    const fee = -(Number(r.fba_fee) + Number(r.referral_fee) + Number(r.other_fees));
+    if (r.order_id) byOrder.set(r.order_id, (byOrder.get(r.order_id) ?? 0) + fee);
+    if (r.sku && r.quantity) {
+      const p = per.get(r.sku) ?? { fee: 0, qty: 0 };
+      p.fee += fee; p.qty += r.quantity; per.set(r.sku, p);
+    }
+  }
+  return { byOrder, perUnit: new Map([...per].map(([sku, p]) => [sku, p.qty ? p.fee / p.qty : 0])) };
 }
