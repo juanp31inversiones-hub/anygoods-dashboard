@@ -35,7 +35,8 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
   const amzSku = new Map((amzInv ?? []).map((i) => [i.sku, i.fulfillable + i.reserved + i.unfulfillable + i.researching]));
   const amazonSays = new Map<string, number>();
   for (const l of listings ?? []) if (amzSku.has(l.sku)) amazonSays.set(l.product_id!, (amazonSays.get(l.product_id!) ?? 0) + amzSku.get(l.sku)!);
-  const withStock = all.filter((r) => Number(r.units_on_hand) !== 0);
+  // Solo lo que de verdad tienes; un saldo negativo es un error de datos y se ve en "Todos los productos"
+  const withStock = all.filter((r) => Number(r.units_on_hand) > 0);
   const rows = tab === "empty" ? all.filter((r) => Number(r.units_on_hand) === 0) : tab === "all" ? all : withStock;
   // Solo columnas de ubicaciones que tienen o tuvieron stock
   const totalsByLoc: Record<string, number> = Object.fromEntries(LOCATIONS.map((loc) => [loc, withStock.reduce((a, r) => a + (r.stock[loc] ?? 0), 0)]));

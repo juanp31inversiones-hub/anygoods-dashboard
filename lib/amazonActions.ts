@@ -240,16 +240,20 @@ async function withAutoSales(supabase: Supa, r: SyncResult): Promise<SyncResult>
  * Solo cuenta ventas posteriores al último cierre o cuadre manual de cada producto, para no descontar dos veces.
  */
 async function autoSalesMovements(supabase: Supa) {
-  const [{ data: listings }, { data: sales }] = await Promise.all([
-    supabase.from("amazon_listings").select("sku, product_id").not("product_id", "is", null),
-    supabase.from("inventory_movements").select("id, product_id, reference, created_at, occurred_on, qty").eq("location", "amazon_fba").eq("movement", "sale"),
+  const [{ data: listings }, { data: moves }] = await Promise.all([
+    // Solo productos activos: los antiguos ya tienen su inventario cerrado
+    supabase.from("amazon_listings").select("sku, product_id, products!inner(active)").not("product_id", "is", null).eq("products.active", true),
+    supabase.from("inventory_movements").select("id, product_id, movement, location, reference, created_at, occurred_on, qty"),
   ]);
   const productOf = new Map((listings ?? []).map((l) => [l.sku, l.product_id as string]));
+  // Corte por producto: el último cierre, cuadre o ajuste hecho a mano (en cualquier ubicación).
+  // Las ventas anteriores a ese momento ya están incluidas en él.
   const cutoff = new Map<string, string>();
   const auto = new Map<string, { id: string; qty: number }>();
-  for (const m of sales ?? []) {
-    if (m.reference === AUTO_REF) auto.set(`${m.product_id}|${m.occurred_on}`, { id: m.id, qty: m.qty });
-    else if (!cutoff.has(m.product_id) || m.created_at > cutoff.get(m.product_id)!) cutoff.set(m.product_id, m.created_at);
+  for (const m of moves ?? []) {
+    if (m.reference === AUTO_REF) { auto.set(`${m.product_id}|${m.occurred_on}`, { id: m.id, qty: m.qty }); continue; }
+    if (m.movement === "purchase" || m.movement === "transfer") continue;
+    if (!cutoff.has(m.product_id) || m.created_at > cutoff.get(m.product_id)!) cutoff.set(m.product_id, m.created_at);
   }
 
   const evs: { sku: string; quantity: number | null; posted_date: string }[] = [];
@@ -268,6 +272,10 @@ async function autoSalesMovements(supabase: Supa) {
     const k = `${pid}|${day}`;
     want.set(k, (want.get(k) ?? 0) - Number(e.quantity ?? 0));
   }
+
+  // Quita las ventas automáticas que ya no corresponden (producto inactivo o anterior al corte)
+  const stale = [...auto].filter(([k]) => !want.has(k)).map(([, v]) => v.id);
+  if (stale.length) await supabase.from("inventory_movements").delete().in("id", stale);
 
   let added = 0;
   for (const [k, qty] of want) {

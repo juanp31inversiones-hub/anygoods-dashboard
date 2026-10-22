@@ -117,7 +117,7 @@ export default async function Dashboard() {
       <section className="space-y-3">
         <h2 className="font-semibold text-base md:text-lg">3. ¿Qué pasó con lo que compramos?</h2>
         <p className="muted text-sm">Por producto: lo comprado, menos lo vendido y lo perdido, igual a lo que tienes hoy y dónde está.</p>
-        <ProductFlow products={stock.filter((r) => Number(r.units_on_hand) !== 0)} moves={(flowMoves.data ?? []) as FlowMove[]} />
+        <ProductFlow products={stock.filter((r) => Number(r.units_on_hand) > 0)} moves={(flowMoves.data ?? []) as FlowMove[]} />
       </section>
 
       {/* 4. Pendientes */}
