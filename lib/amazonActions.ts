@@ -25,7 +25,7 @@ export async function runAmazon(kind: "connection" | "inventory" | "finances" | 
       : kind === "payouts" ? await syncPayouts(supabase)
       : kind === "inbound" ? await syncInboundAndApply(supabase)
       : kind === "orders" ? await syncOrders(supabase)
-      : await syncFinances(supabase, 45_000);
+      : await withAutoSales(supabase, await syncFinances(supabase, 45_000));
     revalidatePath("/amazon");
     return res;
   } catch (e) {
@@ -86,6 +86,14 @@ export async function reconcileFba(productId?: string): Promise<SyncResult> {
     const s0 = since.get(pid);
     if (s0 && e.posted_date.slice(0, 10) <= s0) continue;
     soldNet.set(pid, (soldNet.get(pid) ?? 0) + (e.event_type === "shipment" ? 1 : -1) * Number(e.quantity ?? 0));
+  }
+  // Las ventas que la sincronización ya descontó sola no se vuelven a contar
+  const { data: autoSales } = await supabase.from("inventory_movements").select("product_id, qty, occurred_on")
+    .eq("location", "amazon_fba").eq("reference", "Ventas Amazon (auto)");
+  for (const m of autoSales ?? []) {
+    const s0 = since.get(m.product_id);
+    if (s0 && m.occurred_on < s0) continue;
+    soldNet.set(m.product_id, (soldNet.get(m.product_id) ?? 0) + m.qty);
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -213,4 +221,62 @@ export async function ignoreAmazonShipment(amazonId: string, ignored = true): Pr
   if (error) return { ok: false, message: error.message };
   revalidatePath("/envios");
   return { ok: true, message: ignored ? "Envío ocultado." : "Envío visible." };
+}
+
+// ===== Ventas de Amazon → inventario (automático) =====
+const AUTO_REF = "Ventas Amazon (auto)";
+
+async function withAutoSales(supabase: Supa, r: SyncResult): Promise<SyncResult> {
+  if (!r.ok || !r.complete) return r;
+  const n = await autoSalesMovements(supabase);
+  revalidatePath("/inventario");
+  revalidatePath("/");
+  return n ? { ...r, message: `${r.message} · ${n} unidades vendidas descontadas del inventario` } : r;
+}
+
+/**
+ * Descuenta del inventario en Amazon las unidades vendidas, un movimiento por producto y día.
+ * Solo cuenta ventas posteriores al último cierre o cuadre manual de cada producto, para no descontar dos veces.
+ */
+async function autoSalesMovements(supabase: Supa) {
+  const [{ data: listings }, { data: sales }] = await Promise.all([
+    supabase.from("amazon_listings").select("sku, product_id").not("product_id", "is", null),
+    supabase.from("inventory_movements").select("id, product_id, reference, created_at, occurred_on, qty").eq("location", "amazon_fba").eq("movement", "sale"),
+  ]);
+  const productOf = new Map((listings ?? []).map((l) => [l.sku, l.product_id as string]));
+  const cutoff = new Map<string, string>();
+  const auto = new Map<string, { id: string; qty: number }>();
+  for (const m of sales ?? []) {
+    if (m.reference === AUTO_REF) auto.set(`${m.product_id}|${m.occurred_on}`, { id: m.id, qty: m.qty });
+    else if (!cutoff.has(m.product_id) || m.created_at > cutoff.get(m.product_id)!) cutoff.set(m.product_id, m.created_at);
+  }
+
+  const evs: { sku: string; quantity: number | null; posted_date: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabase.from("amazon_financial_events").select("sku, quantity, posted_date")
+      .eq("event_type", "shipment").in("sku", [...productOf.keys()]).order("id").range(from, from + 999);
+    evs.push(...((data ?? []) as typeof evs));
+    if ((data ?? []).length < 1000) break;
+  }
+  const want = new Map<string, number>();
+  for (const e of evs) {
+    const pid = productOf.get(e.sku)!;
+    const c = cutoff.get(pid);
+    if (c && e.posted_date <= c) continue;
+    const day = new Date(Date.parse(e.posted_date) - 5 * 3_600_000).toISOString().slice(0, 10); // día en Colombia
+    const k = `${pid}|${day}`;
+    want.set(k, (want.get(k) ?? 0) - Number(e.quantity ?? 0));
+  }
+
+  let added = 0;
+  for (const [k, qty] of want) {
+    const [product_id, day] = k.split("|");
+    const cur = auto.get(k);
+    if (cur && cur.qty === qty) continue;
+    if (cur) await supabase.from("inventory_movements").update({ qty }).eq("id", cur.id);
+    else await supabase.from("inventory_movements").insert({ product_id, location: "amazon_fba", movement: "sale", qty, occurred_on: day,
+      channel: "amazon", reference: AUTO_REF, notes: "Unidades despachadas por Amazon ese día (se actualiza al sincronizar)." });
+    added += -(qty - (cur?.qty ?? 0));
+  }
+  return added;
 }
