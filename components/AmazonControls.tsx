@@ -38,8 +38,10 @@ export function SyncButtons() {
         if (!r.ok || r.complete) break;
       }
       const p = await runAmazon("payouts");
-      const ok = inv.ok && fin.ok && p.ok;
-      setMsg({ ok, text: ok ? "Todo sincronizado: inventario, ventas, cargos y pagos de Amazon." : [inv, fin, p].filter((r) => !r.ok).map((r) => r.message).join(" · ") });
+      setMsg({ ok: true, text: "Trayendo envíos a Amazon…" });
+      const inb = await runAmazon("inbound");
+      const ok = inv.ok && fin.ok && p.ok && inb.ok;
+      setMsg({ ok, text: ok ? "Todo sincronizado: inventario, ventas, cargos, pagos y envíos de Amazon." : [inv, fin, p, inb].filter((r) => !r.ok).map((r) => r.message).join(" · ") });
       router.refresh();
     } else {
       const r = await runAmazon(kind);

@@ -5,35 +5,46 @@ import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { Boxes, KeyRound, Landmark, LayoutDashboard, LogOut, Package, Send, ShoppingCart, Store, Truck } from "lucide-react";
 
-const LINKS = [
-  { href: "/", label: "Resumen", icon: LayoutDashboard },
-  { href: "/inventario", label: "Inventario", icon: Boxes },
-  { href: "/envios", label: "Envíos FBA", icon: Send },
-  { href: "/amazon", label: "Amazon", icon: Store },
-  { href: "/productos", label: "Productos", icon: Package },
-  { href: "/compras", label: "Compras", icon: ShoppingCart },
-  { href: "/banco", label: "Banco", icon: Landmark },
-  { href: "/proveedores", label: "Proveedores", icon: Truck },
+const GROUPS = [
+  { title: "", links: [{ href: "/", label: "Resumen", icon: LayoutDashboard }] },
+  { title: "Operación", links: [
+    { href: "/inventario", label: "Inventario", icon: Boxes },
+    { href: "/envios", label: "Envíos a Amazon", icon: Send },
+    { href: "/compras", label: "Compras", icon: ShoppingCart },
+  ] },
+  { title: "Dinero", links: [
+    { href: "/amazon", label: "Amazon", icon: Store },
+    { href: "/banco", label: "Banco", icon: Landmark },
+  ] },
+  { title: "Catálogo", links: [
+    { href: "/productos", label: "Productos", icon: Package },
+    { href: "/proveedores", label: "Proveedores y clientes", icon: Truck },
+  ] },
 ];
 
 function NavLinks({ compact }: { compact?: boolean }) {
   const path = usePathname();
   return (
     <>
-      {LINKS.map(({ href, label, icon: Icon }) => {
-        const active = href === "/" ? path === "/" : path.startsWith(href);
-        return (
-          <Link
-            key={href}
-            href={href}
-            className={`flex items-center gap-3 rounded-lg text-sm transition-colors ${compact ? "px-3 py-2 shrink-0" : "px-3 py-2.5"}`}
-            style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : { color: "var(--muted)" }}
-          >
-            <Icon size={18} strokeWidth={active ? 2.25 : 1.75} />
-            {label}
-          </Link>
-        );
-      })}
+      {GROUPS.map((g) => (
+        <div key={g.title || "home"} className={compact ? "contents" : "flex flex-col gap-1"}>
+          {!compact && g.title && <div className="muted text-[11px] uppercase tracking-wide px-3 pt-4 pb-1">{g.title}</div>}
+          {g.links.map(({ href, label, icon: Icon }) => {
+            const active = href === "/" ? path === "/" : path.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`flex items-center gap-3 rounded-lg text-sm transition-colors ${compact ? "px-3 py-2 shrink-0" : "px-3 py-2.5"}`}
+                style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 600 } : { color: "var(--muted)" }}
+              >
+                <Icon size={18} strokeWidth={active ? 2.25 : 1.75} />
+                {label}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
     </>
   );
 }

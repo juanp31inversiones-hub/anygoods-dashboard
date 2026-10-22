@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { stockByLocation } from "@/lib/stock";
 import { DeleteButton } from "@/components/forms";
 import { Badge, PageHeader, RowLink } from "@/components/ui";
+import { ReconcileButton } from "@/components/AmazonControls";
 import { deleteMovement } from "@/lib/actions";
 import { LOCATIONS, LOCATION_LABELS, MOVEMENT_LABELS, date, money, units } from "@/lib/format";
 
@@ -13,20 +14,29 @@ const TABS = [
   { key: "all", label: "Todos" },
 ];
 
-export default async function Inventario({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const { tab = "stock" } = await searchParams;
+const OUTSIDE = ["own_warehouse", "supplier_warehouse", "prep_center"];
+
+export default async function Inventario({ searchParams }: { searchParams: Promise<{ tab?: string; product?: string }> }) {
+  const { tab = "stock", product = "" } = await searchParams;
   const supabase = await createClient();
-  const [all, { data: moves }] = await Promise.all([
+  let movesQ = supabase.from("inventory_movements")
+    .select("id, movement, qty, location, occurred_on, reference, notes, unit_price, fba_shipment_id, products(id, description)")
+    .neq("movement", "purchase").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(product ? 200 : 40);
+  if (product) movesQ = movesQ.eq("product_id", product);
+  const [all, { data: moves }, { data: amzInv }, { data: listings }] = await Promise.all([
     stockByLocation(supabase, false),
-    supabase.from("inventory_movements")
-      .select("id, movement, qty, location, occurred_on, reference, notes, unit_price, fba_shipment_id, products(id, description)")
-      .neq("movement", "purchase").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(60),
+    movesQ,
+    supabase.from("amazon_inventory").select("sku, fulfillable, reserved, unfulfillable, researching"),
+    supabase.from("amazon_listings").select("sku, product_id").not("product_id", "is", null),
   ]);
+  // Lo que Amazon reporta hoy por producto (disponible + reservado + no vendible + en investigación)
+  const amzSku = new Map((amzInv ?? []).map((i) => [i.sku, i.fulfillable + i.reserved + i.unfulfillable + i.researching]));
+  const amazonSays = new Map<string, number>();
+  for (const l of listings ?? []) if (amzSku.has(l.sku)) amazonSays.set(l.product_id!, (amazonSays.get(l.product_id!) ?? 0) + amzSku.get(l.sku)!);
   const withStock = all.filter((r) => Number(r.units_on_hand) !== 0);
   const rows = tab === "empty" ? all.filter((r) => Number(r.units_on_hand) === 0) : tab === "all" ? all : withStock;
   // Solo columnas de ubicaciones que tienen o tuvieron stock
-  const usedLocations = LOCATIONS.filter((loc) => loc === "own_warehouse" || loc === "amazon_fba" || all.some((r) => (r.stock[loc] ?? 0) !== 0));
-  const totalsByLoc = Object.fromEntries(usedLocations.map((loc) => [loc, withStock.reduce((a, r) => a + (r.stock[loc] ?? 0), 0)]));
+  const totalsByLoc: Record<string, number> = Object.fromEntries(LOCATIONS.map((loc) => [loc, withStock.reduce((a, r) => a + (r.stock[loc] ?? 0), 0)]));
   const totalValue = withStock.reduce((a, r) => a + Number(r.inventory_value), 0);
 
   type M = { id: string; fba_shipment_id: string | null; unit_price: number | null; movement: string; qty: number; location: string; occurred_on: string; reference: string | null; notes: string | null; products: { id: string; description: string } | null };
@@ -43,12 +53,16 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
         ]}
       />
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {usedLocations.map((loc) => (
-          <div key={loc} className="card p-4">
-            <div className="muted text-xs uppercase tracking-wide">{LOCATION_LABELS[loc]}</div>
-            <div className="text-2xl font-semibold mt-1 tabular-nums">{units(totalsByLoc[loc])}</div>
-            <div className="muted text-xs">unidades</div>
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[
+          { label: "Fuera de Amazon", value: OUTSIDE.reduce((t, l) => t + (totalsByLoc[l] ?? 0), 0), hint: "En el proveedor, el prep center o tu bodega. Listo para enviar." },
+          { label: "Camino a Amazon", value: totalsByLoc.fba_inbound ?? 0, hint: "Enviado, aún no recibido por Amazon." },
+          { label: "En Amazon", value: totalsByLoc.amazon_fba ?? 0, hint: "En los centros de Amazon, a la venta." },
+        ].map((c) => (
+          <div key={c.label} className="card p-4">
+            <div className="muted text-xs">{c.label}</div>
+            <div className="text-2xl font-semibold mt-1 tabular-nums">{units(c.value)} <span className="text-sm font-normal muted">und</span></div>
+            <div className="muted text-xs mt-1">{c.hint}</div>
           </div>
         ))}
       </section>
@@ -67,7 +81,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
           <thead>
             <tr>
               <th>Producto</th>
-              {usedLocations.map((loc) => <th key={loc} className="num">{LOCATION_LABELS[loc]}</th>)}
+              <th className="num">Fuera de Amazon</th><th className="num">Camino a Amazon</th><th className="num">En Amazon</th>
               <th className="num">Total</th><th className="num">Costo neto/u</th><th className="num">Valor</th><th>Acciones</th>
             </tr>
           </thead>
@@ -94,9 +108,20 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
                       </div>
                     </div>
                   </td>
-                  {usedLocations.map((loc) => (
-                    <td key={loc} className={`num ${(r.stock[loc] ?? 0) === 0 ? "muted" : ""}`}>{units(r.stock[loc] ?? 0)}</td>
-                  ))}
+                  <td className="num">
+                    {units(OUTSIDE.reduce((t, loc) => t + (r.stock[loc] ?? 0), 0))}
+                    <div className="muted text-xs">{OUTSIDE.filter((loc) => (r.stock[loc] ?? 0) !== 0).map((loc) => `${LOCATION_LABELS[loc]}: ${units(r.stock[loc])}`).join(" · ")}</div>
+                  </td>
+                  <td className={`num ${(r.stock.fba_inbound ?? 0) === 0 ? "muted" : ""}`}>{units(r.stock.fba_inbound ?? 0)}</td>
+                  <td className="num">
+                    {units(r.stock.amazon_fba ?? 0)}
+                    {amazonSays.has(r.product_id) && amazonSays.get(r.product_id) !== (r.stock.amazon_fba ?? 0) && (
+                      <div className="text-xs mt-0.5 space-y-1">
+                        <div className="neg">Amazon dice {units(amazonSays.get(r.product_id))}</div>
+                        <ReconcileButton productId={r.product_id} label="Cuadrar" />
+                      </div>
+                    )}
+                  </td>
                   <td className="num font-medium">{units(r.units_on_hand)}</td>
                   <td className="num">{r.avg_cost ? money(r.avg_cost) : "—"}</td>
                   <td className="num">{money(r.inventory_value)}</td>
@@ -113,14 +138,26 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={usedLocations.length + 5} className="muted">No hay productos en esta vista. Las compras que registres aparecerán aquí.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={8} className="muted">No hay productos en esta vista. Las compras que registres aparecerán aquí.</td></tr>}
           </tbody>
         </table>
       </section>
 
       <section className="card overflow-x-auto">
-        <h2 className="font-semibold px-4 pt-4">Historial de envíos, salidas y ajustes</h2>
-        <p className="muted text-xs px-4">Las compras se gestionan desde Compras y los envíos desde Envíos FBA. Los ajustes manuales se pueden eliminar con ✕.</p>
+        <div className="flex flex-wrap justify-between items-end gap-2 px-4 pt-4">
+          <div>
+            <h2 className="font-semibold">Historial: ventas, envíos, salidas y ajustes</h2>
+            <p className="muted text-xs">{product ? "Todos los movimientos del producto elegido." : "Los 40 más recientes. Elige un producto para ver su historia completa."}</p>
+          </div>
+          <form className="flex gap-2">
+            <input type="hidden" name="tab" value={tab} />
+            <select name="product" defaultValue={product} className="input w-auto text-sm">
+              <option value="">Todos los productos</option>
+              {all.map((r) => <option key={r.product_id} value={r.product_id}>{r.description}</option>)}
+            </select>
+            <button className="btn-ghost text-sm">Ver</button>
+          </form>
+        </div>
         <table className="data mt-2">
           <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Ubicación</th><th>Referencia</th><th className="num">Cantidad</th><th /></tr></thead>
           <tbody>

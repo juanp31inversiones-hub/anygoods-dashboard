@@ -10,9 +10,9 @@ export const maxDuration = 60;
 const GUIDE = [
   { href: "/amazon", label: "Amazon", use: "Ventas, cargos y pagos de Amazon. Usa “Sincronizar todo” una vez por semana." },
   { href: "/inventario", label: "Inventario", use: "Cuántas unidades tienes y dónde están (Amazon, proveedor, bodega)." },
-  { href: "/envios", label: "Envíos FBA", use: "Cuando mandes mercancía a Amazon, regístralo aquí." },
+  { href: "/envios", label: "Envíos a Amazon", use: "Crea el envío en Seller Central y tráelo aquí con un clic; la app lo sigue sola." },
   { href: "/compras", label: "Compras", use: "Cada orden a un proveedor: costo, pagos y documentos." },
-  { href: "/banco", label: "Banco", use: "Movimientos de Mercury (pagos, ingresos, aportes)." },
+  { href: "/banco", label: "Banco", use: "Entradas, salidas y saldo de Mercury, con filtro por fechas y categoría." },
   { href: "/productos", label: "Productos", use: "Catálogo con foto y costo de cada producto." },
   { href: "/proveedores", label: "Proveedores", use: "Proveedores, clientes y terceros como EC Access." },
 ];

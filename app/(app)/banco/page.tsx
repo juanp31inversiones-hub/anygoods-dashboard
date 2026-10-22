@@ -1,8 +1,8 @@
 import Link from "next/link";
+import { ArrowDownLeft, ArrowUpRight, Pencil, Plus, Scale, Search, Wallet } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { CATEGORY_LABELS, date, money } from "@/lib/format";
 import { PageHeader } from "@/components/ui";
-import { Pencil, Plus } from "lucide-react";
 
 type Txn = {
   id: string;
@@ -13,47 +13,152 @@ type Txn = {
   notes: string | null;
   counterparty: { name: string } | null;
   partner: { short_name: string } | null;
-  purchase_order: { invoice_number: string | null } | null;
+  purchase_order: { po_number: string | null; invoice_number: string | null } | null;
 };
+type Params = { from?: string; to?: string; cat?: string; type?: string; q?: string; who?: string };
 
-export default async function Banco({ searchParams }: { searchParams: Promise<{ cat?: string }> }) {
-  const { cat } = await searchParams;
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+function presets() {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  return [
+    { label: "Este mes", from: iso(new Date(y, m, 1)), to: "" },
+    { label: "Mes pasado", from: iso(new Date(y, m - 1, 1)), to: iso(new Date(y, m, 0)) },
+    { label: "Últimos 3 meses", from: iso(new Date(y, m - 2, 1)), to: "" },
+    { label: "Este año", from: `${y}-01-01`, to: "" },
+    { label: "Año pasado", from: `${y - 1}-01-01`, to: `${y - 1}-12-31` },
+    { label: "Todo", from: "", to: "" },
+  ];
+}
+
+export default async function Banco({ searchParams }: { searchParams: Promise<Params> }) {
+  const sp = await searchParams;
+  const { from = "", to = "", cat = "", type = "", q = "", who = "" } = sp;
   const supabase = await createClient();
-  let query = supabase
+  const { data } = await supabase
     .from("bank_transactions")
-    .select(
-      "id, txn_date, description, amount, category, notes, counterparty:counterparties(name), partner:partners(short_name), purchase_order:purchase_orders(invoice_number)",
-    )
-    .order("txn_date", { ascending: false });
-  if (cat) query = query.eq("category", cat);
-  const { data } = await query.returns<Txn[]>();
-  const rows = data ?? [];
-  const total = rows.reduce((a, r) => a + Number(r.amount), 0);
+    .select("id, txn_date, description, amount, category, notes, counterparty:counterparties(name), partner:partners(short_name), purchase_order:purchase_orders(po_number, invoice_number)")
+    .order("txn_date", { ascending: true }).order("created_at", { ascending: true })
+    .returns<Txn[]>();
+  const all = data ?? [];
+
+  // Saldo después de cada movimiento (sobre todo el historial)
+  let running = 0;
+  const balanceAfter = new Map(all.map((t) => [t.id, (running += Number(t.amount))]));
+  const who_ = (t: Txn) => t.partner?.short_name ?? t.counterparty?.name ?? "";
+
+  const inRange = all.filter((t) => (!from || t.txn_date >= from) && (!to || t.txn_date <= to));
+  const term = q.trim().toLowerCase();
+  const rows = inRange.filter((t) =>
+    (!cat || t.category === cat) &&
+    (!who || who_(t) === who) &&
+    (!type || (type === "in" ? Number(t.amount) > 0 : Number(t.amount) < 0)) &&
+    (!term || [t.description, t.notes, who_(t)].some((v) => v?.toLowerCase().includes(term))),
+  ).reverse();
+
+  const sumIn = rows.filter((t) => Number(t.amount) > 0).reduce((a, t) => a + Number(t.amount), 0);
+  const sumOut = rows.filter((t) => Number(t.amount) < 0).reduce((a, t) => a + Number(t.amount), 0);
+  const opening = all.filter((t) => from && t.txn_date < from).reduce((a, t) => a + Number(t.amount), 0);
+  const closing = all.filter((t) => !to || t.txn_date <= to).reduce((a, t) => a + Number(t.amount), 0);
+
+  // Resumen por categoría dentro del rango y filtros (sin el filtro de categoría)
+  const base = inRange.filter((t) => (!who || who_(t) === who) && (!type || (type === "in" ? Number(t.amount) > 0 : Number(t.amount) < 0)));
+  const byCat = Object.entries(base.reduce<Record<string, number>>((acc, t) => {
+    const k = t.category ?? "other_expense";
+    acc[k] = (acc[k] ?? 0) + Number(t.amount);
+    return acc;
+  }, {})).sort((a, b) => a[1] - b[1]);
+  const people = [...new Set(all.map(who_).filter(Boolean))].sort();
+
+  const url = (patch: Partial<Params>) => {
+    const p = new URLSearchParams(Object.entries({ ...sp, ...patch }).filter(([, v]) => v) as [string, string][]);
+    return `/banco${p.size ? `?${p}` : ""}`;
+  };
+  const activePreset = presets().find((p) => p.from === from && p.to === to)?.label;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Banco" subtitle={`${rows.length} movimientos · neto ${money(total)}`} action={{ href: "/banco/nuevo", label: "Nuevo movimiento", icon: Plus }} />
+      <PageHeader title="Banco" subtitle="Movimientos de Mercury. Filtra por fechas, tipo o categoría; las tarjetas de arriba suman lo filtrado."
+        action={{ href: "/banco/nuevo", label: "Nuevo movimiento", icon: Plus }} />
 
-      <div className="flex flex-wrap gap-2 text-sm">
-        <Link href="/banco" className="rounded-full px-3 py-1 border" style={{ borderColor: "var(--border)", fontWeight: cat ? 400 : 600 }}>
-          Todas
-        </Link>
-        {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
-          <Link
-            key={k}
-            href={`/banco?cat=${k}`}
-            className="rounded-full px-3 py-1 border"
-            style={{ borderColor: "var(--border)", fontWeight: cat === k ? 600 : 400 }}
-          >
-            {label}
+      {/* Rango de fechas */}
+      <div className="flex flex-wrap gap-2 items-center">
+        {presets().map((p) => (
+          <Link key={p.label} href={url({ from: p.from, to: p.to })} className="rounded-full px-3 py-1 border text-sm"
+            style={activePreset === p.label ? { borderColor: "var(--accent)", color: "var(--accent)", fontWeight: 600 } : { borderColor: "var(--border)" }}>
+            {p.label}
           </Link>
         ))}
+        <form className="flex flex-wrap gap-2 items-center text-sm">
+          {Object.entries(sp).filter(([k]) => !["from", "to"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+          <input type="date" name="from" defaultValue={from} className="input w-auto py-1" aria-label="Desde" />
+          <span className="muted">a</span>
+          <input type="date" name="to" defaultValue={to} className="input w-auto py-1" aria-label="Hasta" />
+          <button className="btn-ghost py-1">Aplicar</button>
+        </form>
       </div>
 
+      {/* Tarjetas: tocan para filtrar */}
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Link href={url({ type: type === "in" ? "" : "in" })} className="card p-4 hover:shadow-sm" style={type === "in" ? { borderColor: "var(--pos)" } : undefined}>
+          <div className="muted text-xs flex items-center gap-1"><ArrowDownLeft size={14} className="pos" /> Entradas</div>
+          <div className="text-2xl font-semibold mt-1 tabular-nums pos">{money(sumIn)}</div>
+          <div className="muted text-xs">{rows.filter((t) => Number(t.amount) > 0).length} movimientos · toca para ver solo entradas</div>
+        </Link>
+        <Link href={url({ type: type === "out" ? "" : "out" })} className="card p-4 hover:shadow-sm" style={type === "out" ? { borderColor: "var(--neg)" } : undefined}>
+          <div className="muted text-xs flex items-center gap-1"><ArrowUpRight size={14} className="neg" /> Salidas</div>
+          <div className="text-2xl font-semibold mt-1 tabular-nums neg">{money(sumOut)}</div>
+          <div className="muted text-xs">{rows.filter((t) => Number(t.amount) < 0).length} movimientos · toca para ver solo salidas</div>
+        </Link>
+        <div className="card p-4">
+          <div className="muted text-xs flex items-center gap-1"><Scale size={14} /> Neto del periodo</div>
+          <div className={`text-2xl font-semibold mt-1 tabular-nums ${sumIn + sumOut < 0 ? "neg" : "pos"}`}>{money(sumIn + sumOut)}</div>
+          <div className="muted text-xs">Entradas − salidas</div>
+        </div>
+        <div className="card p-4">
+          <div className="muted text-xs flex items-center gap-1"><Wallet size={14} /> Saldo {to ? `al ${date(to)}` : "hoy"}</div>
+          <div className="text-2xl font-semibold mt-1 tabular-nums">{money(closing)}</div>
+          <div className="muted text-xs">{from ? `Saldo inicial ${money(opening)}` : "Debe coincidir con Mercury"}</div>
+        </div>
+      </section>
+
+      {/* Por categoría */}
+      <section className="card p-4 space-y-2">
+        <div className="flex justify-between items-baseline">
+          <h2 className="font-semibold text-sm">¿En qué se movió la plata?</h2>
+          {cat && <Link href={url({ cat: "" })} className="link text-xs">Quitar filtro de categoría</Link>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {byCat.map(([k, v]) => (
+            <Link key={k} href={url({ cat: cat === k ? "" : k })} className="rounded-lg border px-3 py-1.5 text-sm flex gap-2 items-baseline"
+              style={cat === k ? { borderColor: "var(--accent)", background: "var(--accent-soft)" } : { borderColor: "var(--border)" }}>
+              <span>{CATEGORY_LABELS[k] ?? k}</span>
+              <span className={`tabular-nums font-medium ${v < 0 ? "neg" : "pos"}`}>{money(v)}</span>
+            </Link>
+          ))}
+          {byCat.length === 0 && <span className="muted text-sm">Sin movimientos en este periodo.</span>}
+        </div>
+      </section>
+
+      {/* Buscar */}
+      <form className="card p-3 flex flex-wrap gap-2 items-center">
+        {Object.entries(sp).filter(([k]) => !["q", "who"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 muted" />
+          <input name="q" defaultValue={q} placeholder="Buscar descripción o nota" className="input pl-9" />
+        </div>
+        <select name="who" defaultValue={who} className="input w-auto">
+          <option value="">Todos los proveedores / socios</option>
+          {people.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <button className="btn-ghost">Buscar</button>
+        {(q || who || cat || type || from || to) && <Link href="/banco" className="muted text-sm underline">Limpiar todo</Link>}
+      </form>
+
       <section className="card overflow-x-auto">
-        <table className="data">
+        <table className="data min-w-[860px]">
           <thead>
-            <tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Contraparte</th><th>PO</th><th className="num">Monto</th><th /></tr>
+            <tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Con quién</th><th className="num">Monto</th><th className="num">Saldo</th><th /></tr>
           </thead>
           <tbody>
             {rows.map((r) => (
@@ -61,15 +166,17 @@ export default async function Banco({ searchParams }: { searchParams: Promise<{ 
                 <td className="whitespace-nowrap">{date(r.txn_date)}</td>
                 <td>
                   <Link href={`/banco/${r.id}`} className="link">{r.description}</Link>
-                  {r.notes && <div className="muted text-xs mt-0.5">{r.notes}</div>}
+                  {r.purchase_order && <span className="muted text-xs"> · {r.purchase_order.po_number ?? r.purchase_order.invoice_number}</span>}
+                  {r.notes && <div className="muted text-xs mt-0.5 line-clamp-1">{r.notes}</div>}
                 </td>
                 <td className="whitespace-nowrap">{r.category ? CATEGORY_LABELS[r.category] ?? r.category : "—"}</td>
-                <td>{r.partner?.short_name ?? r.counterparty?.name ?? "—"}</td>
-                <td className="muted">{r.purchase_order?.invoice_number ?? ""}</td>
-                <td className={`num ${Number(r.amount) < 0 ? "neg" : "pos"}`}>{money(r.amount)}</td>
+                <td>{who_(r) || "—"}</td>
+                <td className={`num font-medium ${Number(r.amount) < 0 ? "neg" : "pos"}`}>{money(r.amount)}</td>
+                <td className="num muted">{money(balanceAfter.get(r.id))}</td>
                 <td><Link href={`/banco/${r.id}`} aria-label="Editar" className="muted hover:underline"><Pencil size={14} /></Link></td>
               </tr>
             ))}
+            {rows.length === 0 && <tr><td colSpan={7} className="muted">No hay movimientos con estos filtros.</td></tr>}
           </tbody>
         </table>
       </section>
