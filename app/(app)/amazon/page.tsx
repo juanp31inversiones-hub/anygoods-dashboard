@@ -16,23 +16,47 @@ const TABS = [
   { key: "skus", label: "SKUs" },
 ];
 const PERIODS = [
-  { key: "30", label: "30 días" }, { key: "90", label: "90 días" }, { key: "365", label: "12 meses" }, { key: "all", label: "Todo" },
+  { key: "today", label: "Hoy" }, { key: "yesterday", label: "Ayer" }, { key: "7", label: "7 días" }, { key: "30", label: "30 días" },
+  { key: "month", label: "Este mes" }, { key: "lastmonth", label: "Mes pasado" }, { key: "90", label: "90 días" },
+  { key: "year", label: "Este año" }, { key: "365", label: "12 meses" }, { key: "all", label: "Todo" },
 ];
+const TZ_MS = 5 * 3_600_000; // días según la hora de Colombia (UTC−5)
+
+/** Convierte el periodo elegido (o un rango propio desde/hasta) en fechas ISO [since, until). */
+function periodRange(period: string, from?: string, to?: string): { since: string; until?: string } {
+  const day = 86_400_000;
+  const startOf = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + TZ_MS).toISOString();
+  if (period === "custom" && from) return { since: startOf(from), until: to ? new Date(Date.parse(startOf(to)) + day).toISOString() : undefined };
+  const local = new Date(Date.now() - TZ_MS);
+  const y = local.getUTCFullYear(), m = local.getUTCMonth();
+  const today = Date.UTC(y, m, local.getUTCDate()) + TZ_MS;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  switch (period) {
+    case "today": return { since: iso(today) };
+    case "yesterday": return { since: iso(today - day), until: iso(today) };
+    case "month": return { since: iso(Date.UTC(y, m, 1) + TZ_MS) };
+    case "lastmonth": return { since: iso(Date.UTC(y, m - 1, 1) + TZ_MS), until: iso(Date.UTC(y, m, 1) + TZ_MS) };
+    case "year": return { since: iso(Date.UTC(y, 0, 1) + TZ_MS) };
+    case "all": return { since: "2000-01-01" };
+    default: return { since: iso(today - (Number(period) - 1) * day) };
+  }
+}
 const KIND_LABEL: Record<string, string> = { connection: "Conexión", inventory: "Inventario FBA", finances: "Ventas y fees", payouts: "Pagos de Amazon" };
 
 type Ev = { event_type: string; posted_date: string; sku: string | null; quantity: number | null; principal: number; shipping: number;
   promotion: number; fba_fee: number; referral_fee: number; other_fees: number; total: number; description: string | null };
 
-export default async function Amazon({ searchParams }: { searchParams: Promise<{ tab?: string; period?: string }> }) {
-  const { tab = "rentabilidad", period = "90" } = await searchParams;
+export default async function Amazon({ searchParams }: { searchParams: Promise<{ tab?: string; period?: string; from?: string; to?: string }> }) {
+  const { tab = "rentabilidad", period = "30", from = "", to = "" } = await searchParams;
   const supabase = await createClient();
-  const since = period === "all" ? "2000-01-01" : new Date(Date.now() - Number(period) * 86_400_000).toISOString();
+  const { since, until } = periodRange(period, from, to);
+  const periodQs = period === "custom" ? `period=custom&from=${from}&to=${to}` : `period=${period}`;
 
   const [{ data: runs }, { data: listings }, { data: inv }, { data: events }, { data: products }, { data: stock }, { data: fbaMoves }, { data: state }, { data: payouts }, { data: bankAmazon }] = await Promise.all([
     supabase.from("amazon_sync_runs").select("kind, status, message, started_at, finished_at").order("started_at", { ascending: false }).limit(30),
     supabase.from("amazon_listings").select("sku, asin, fnsku, title, product_id").order("title"),
     supabase.from("amazon_inventory").select("*"),
-    allEvents(supabase, since),
+    allEvents(supabase, since, until),
     supabase.from("products").select("id, description, image_url, active").order("description"),
     supabase.from("v_inventory_on_hand").select("product_id, fba_unit_cost"),
     supabase.from("inventory_movements").select("product_id, qty").eq("location", "amazon_fba"),
@@ -99,7 +123,7 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
 
       <div className="flex gap-1 border-b overflow-x-auto" style={{ borderColor: "var(--border)" }}>
         {TABS.map((t) => (
-          <Link key={t.key} href={`/amazon?tab=${t.key}&period=${period}`} className="px-4 py-2 text-sm -mb-px border-b-2 whitespace-nowrap"
+          <Link key={t.key} href={`/amazon?tab=${t.key}&${periodQs}`} className="px-4 py-2 text-sm -mb-px border-b-2 whitespace-nowrap"
             style={tab === t.key ? { borderColor: "var(--accent)", color: "var(--accent)", fontWeight: 600 } : { borderColor: "transparent", color: "var(--muted)" }}>
             {t.label}
           </Link>
@@ -107,14 +131,25 @@ export default async function Amazon({ searchParams }: { searchParams: Promise<{
       </div>
 
       {(tab === "rentabilidad" || tab === "cargos") && (
-        <div className="flex gap-2 text-sm">
+        <div className="flex flex-wrap gap-2 text-sm items-center">
           {PERIODS.map((p) => (
             <Link key={p.key} href={`/amazon?tab=${tab}&period=${p.key}`} className="rounded-full px-3 py-1 border"
               style={{ borderColor: "var(--border)", fontWeight: period === p.key ? 600 : 400, background: period === p.key ? "var(--accent-soft)" : undefined }}>
               {p.label}
             </Link>
           ))}
+          <form className="flex flex-wrap gap-2 items-center">
+            <input type="hidden" name="tab" value={tab} />
+            <input type="hidden" name="period" value="custom" />
+            <input type="date" name="from" defaultValue={from} className="input w-auto py-1" aria-label="Desde" required />
+            <span className="muted">a</span>
+            <input type="date" name="to" defaultValue={to} className="input w-auto py-1" aria-label="Hasta" />
+            <button className="btn-ghost py-1" style={period === "custom" ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}>Aplicar</button>
+          </form>
         </div>
+      )}
+      {(tab === "rentabilidad" || tab === "cargos") && ["today", "yesterday"].includes(period) && (
+        <p className="muted text-xs">Amazon registra la venta cuando envía el pedido (no cuando el cliente compra), así que “Hoy” puede ser menor que lo que ves en Seller Central.</p>
       )}
 
       {tab === "rentabilidad" && <Profitability evs={evs} productOfSku={productOfSku} productById={productById} costOf={costOf} />}
@@ -387,12 +422,14 @@ function Payouts({ payouts, bank }: { payouts: PayoutRow[]; bank: BankRow[] }) {
 }
 
 /** Supabase devuelve máximo 1.000 filas por consulta: se pagina para traer todo el historial. */
-async function allEvents(supabase: Awaited<ReturnType<typeof createClient>>, since: string) {
+async function allEvents(supabase: Awaited<ReturnType<typeof createClient>>, since: string, until?: string) {
   const rows: Ev[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from("amazon_financial_events")
+    let q = supabase.from("amazon_financial_events")
       .select("event_type, posted_date, sku, quantity, principal, shipping, promotion, fba_fee, referral_fee, other_fees, total, description")
-      .gte("posted_date", since).order("posted_date").order("id").range(from, from + 999);
+      .gte("posted_date", since);
+    if (until) q = q.lt("posted_date", until);
+    const { data, error } = await q.order("posted_date").order("id").range(from, from + 999);
     if (error) return { data: rows, error };
     rows.push(...((data ?? []) as Ev[]));
     if ((data ?? []).length < 1000) return { data: rows, error: null };
