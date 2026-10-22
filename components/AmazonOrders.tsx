@@ -6,11 +6,6 @@ export type OrderRow = { order_id: string; purchase_date: string; status: string
 
 const TZ_MS = 5 * 3_600_000; // Colombia (UTC−5), igual que el celular
 const localDay = (iso: string) => new Date(Date.parse(iso) - TZ_MS).toISOString().slice(0, 10);
-const STATUS: Record<string, { label: string; tone: "pos" | "warn" | "neg" | "muted" }> = {
-  Pending: { label: "Pendiente de pago", tone: "warn" }, Unshipped: { label: "Por enviar", tone: "warn" },
-  PartiallyShipped: { label: "Enviado parcial", tone: "warn" }, Shipped: { label: "Enviado", tone: "pos" },
-  Canceled: { label: "Cancelado", tone: "neg" }, Unfulfillable: { label: "Sin stock", tone: "neg" },
-};
 
 /** Ventas por fecha de compra, como "Units ordered" y "Sales" de Seller Central. */
 export function AmazonOrders({ orders, since, until, nameOf }: {
@@ -69,6 +64,21 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
     p.units += i.qty; p.sales += priceOf(i); byProduct.set(k, p);
   }
   const t = totals(liveRange);
+  // Resumen por día: pedidos por estado
+  const dayMap = new Map<string, { day: string; orders: number; units: number; sales: number; shipped: number; pending: number; cancelled: number }>();
+  for (const o of inRange) {
+    const day = localDay(o.purchase_date);
+    const d = dayMap.get(day) ?? { day, orders: 0, units: 0, sales: 0, shipped: 0, pending: 0, cancelled: 0 };
+    if (o.status === "Canceled") d.cancelled++;
+    else {
+      d.orders++;
+      d.units += o.items.reduce((b, i) => b + i.qty, 0);
+      d.sales += o.items.reduce((b, i) => b + priceOf(i), 0);
+      if (o.status === "Shipped") d.shipped++; else d.pending++;
+    }
+    dayMap.set(day, d);
+  }
+  const daily = [...dayMap.values()].sort((a, b) => b.day.localeCompare(a.day));
   const loading = orders.some((o) => !o.items_synced);
 
   return (
@@ -121,25 +131,44 @@ export function AmazonOrders({ orders, since, until, nameOf }: {
             </tbody>
           </table>
         </section>
-        <section className="card overflow-x-auto">
-          <h3 className="font-medium px-4 pt-4">Pedidos</h3>
+        <section className="card overflow-x-auto lg:col-span-2">
+          <h3 className="font-medium px-4 pt-4">Pedidos por día y estado</h3>
           <table className="data mt-2">
-            <thead><tr><th>Fecha</th><th>Producto</th><th className="num">Und</th><th>Estado</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Día</th><th className="num">Pedidos</th><th className="num">Unidades</th><th className="num">Ventas</th>
+                <th className="num">Enviados</th><th className="num">Pendientes</th><th className="num">Cancelados</th>
+              </tr>
+            </thead>
             <tbody>
-              {inRange.slice().sort((a, b) => b.purchase_date.localeCompare(a.purchase_date)).slice(0, 100).map((o) => (
-                <tr key={o.order_id}>
-                  <td className="whitespace-nowrap text-xs">
-                    {new Date(Date.parse(o.purchase_date) - TZ_MS).toISOString().slice(5, 16).replace("T", " ")}
-                    <div className="muted">{o.order_id}</div>
-                  </td>
-                  <td className="text-sm">{o.items.map((i) => nameOf(i.sku, i.title)).join(", ") || <span className="muted">…</span>}</td>
-                  <td className="num">{o.items.reduce((b, i) => b + i.qty, 0)}</td>
-                  <td><Badge tone={STATUS[o.status]?.tone}>{STATUS[o.status]?.label ?? o.status}</Badge></td>
+              {daily.map((d) => (
+                <tr key={d.day}>
+                  <td className="whitespace-nowrap">{new Date(`${d.day}T12:00:00Z`).toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short" })}</td>
+                  <td className="num">{d.orders}</td>
+                  <td className="num">{units(d.units)}</td>
+                  <td className="num">{money(d.sales)}</td>
+                  <td className="num">{d.shipped ? <Badge tone="pos">{d.shipped}</Badge> : <span className="muted">0</span>}</td>
+                  <td className="num">{d.pending ? <Badge tone="warn">{d.pending}</Badge> : <span className="muted">0</span>}</td>
+                  <td className="num">{d.cancelled ? <Badge tone="neg">{d.cancelled}</Badge> : <span className="muted">0</span>}</td>
                 </tr>
               ))}
-              {inRange.length === 0 && <tr><td colSpan={4} className="muted">Sin pedidos en este periodo.</td></tr>}
+              {daily.length === 0 && <tr><td colSpan={7} className="muted">Sin pedidos en este periodo.</td></tr>}
             </tbody>
+            {daily.length > 1 && (
+              <tfoot>
+                <tr className="font-semibold">
+                  <td>Total</td>
+                  <td className="num">{daily.reduce((a, d) => a + d.orders, 0)}</td>
+                  <td className="num">{units(daily.reduce((a, d) => a + d.units, 0))}</td>
+                  <td className="num">{money(daily.reduce((a, d) => a + d.sales, 0))}</td>
+                  <td className="num">{daily.reduce((a, d) => a + d.shipped, 0)}</td>
+                  <td className="num">{daily.reduce((a, d) => a + d.pending, 0)}</td>
+                  <td className="num">{daily.reduce((a, d) => a + d.cancelled, 0)}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
+          <p className="muted text-xs px-4 pb-3">Pedidos y unidades no cuentan los cancelados. “Pendientes” = el cliente aún no paga o Amazon aún no lo despacha.</p>
         </section>
       </div>
       <p className="muted text-xs">Igual que “Product sales” y “Units ordered” del celular: precio de lo que pidieron los clientes (sin impuestos ni envío), por día de compra. Es lo vendido, no la ganancia: la ganancia está en “Rentabilidad”.</p>
