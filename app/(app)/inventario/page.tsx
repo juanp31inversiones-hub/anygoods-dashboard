@@ -5,6 +5,7 @@ import { stockByLocation } from "@/lib/stock";
 import { DeleteButton } from "@/components/forms";
 import { Badge, PageHeader, RowLink } from "@/components/ui";
 import { ReconcileButton } from "@/components/AmazonControls";
+import { fbaLedger, type LedgerRow } from "@/lib/fbaLedger";
 import { deleteMovement } from "@/lib/actions";
 import { LOCATIONS, LOCATION_LABELS, MOVEMENT_LABELS, date, money, units } from "@/lib/format";
 
@@ -12,6 +13,7 @@ const TABS = [
   { key: "stock", label: "Con stock" },
   { key: "empty", label: "Agotados" },
   { key: "all", label: "Todos" },
+  { key: "amazon", label: "Cuadre con Amazon" },
 ];
 
 const OUTSIDE = ["own_warehouse", "supplier_warehouse", "prep_center"];
@@ -23,11 +25,12 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
     .select("id, movement, qty, location, occurred_on, reference, notes, unit_price, fba_shipment_id, products(id, description)")
     .neq("movement", "purchase").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(product ? 200 : 40);
   if (product) movesQ = movesQ.eq("product_id", product);
-  const [all, { data: moves }, { data: amzInv }, { data: listings }] = await Promise.all([
+  const [all, { data: moves }, { data: amzInv }, { data: listings }, ledger] = await Promise.all([
     stockByLocation(supabase, false),
     movesQ,
     supabase.from("amazon_inventory").select("sku, fulfillable, reserved, unfulfillable, researching"),
     supabase.from("amazon_listings").select("sku, product_id").not("product_id", "is", null),
+    tab === "amazon" ? fbaLedger(supabase) : Promise.resolve([] as LedgerRow[]),
   ]);
   // Lo que Amazon reporta hoy por producto (disponible + reservado + no vendible + en investigación)
   const amzSku = new Map((amzInv ?? []).map((i) => [i.sku, i.fulfillable + i.reserved + i.unfulfillable + i.researching]));
@@ -76,6 +79,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
         ))}
       </div>
 
+      {tab === "amazon" ? <AmazonLedger rows={ledger} /> : (
       <section className="card overflow-x-auto">
         <table className="data min-w-[900px]">
           <thead>
@@ -142,6 +146,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
           </tbody>
         </table>
       </section>
+      )}
 
       <section className="card overflow-x-auto">
         <div className="flex flex-wrap justify-between items-end gap-2 px-4 pt-4">
@@ -180,6 +185,58 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
           </tbody>
         </table>
       </section>
+    </div>
+  );
+}
+
+function AmazonLedger({ rows }: { rows: LedgerRow[] }) {
+  if (!rows.length) return <p className="muted text-sm">No hay productos activos con envíos a Amazon. Sincroniza en la página Amazon.</p>;
+  const line = (label: string, v: number, sign: "+" | "−" | "=" | "", strong = false, hint?: string) => (
+    <tr className={strong ? "font-semibold" : ""}>
+      <td className={strong ? "" : "muted"}>{sign} {label}{hint && <div className="text-xs muted font-normal">{hint}</div>}</td>
+      <td className="num">{units(v)}</td>
+    </tr>
+  );
+  return (
+    <div className="space-y-3">
+      <p className="muted text-sm">Para cada producto: lo que mandaste a Amazon, menos lo vendido, más las devoluciones, menos lo que Amazon perdió y pagó. Eso es lo que debería tener Amazon; abajo, lo que Amazon reporta hoy.</p>
+      <div className="grid lg:grid-cols-2 gap-3">
+        {rows.map((r) => (
+          <div key={r.productId} className="card p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="w-9 h-9 rounded shrink-0 overflow-hidden" style={{ background: "var(--bg)" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {r.image && <img src={r.image} alt="" className="w-full h-full object-contain" />}
+              </span>
+              <Link href={`/productos/${r.productId}`} className="font-medium link">{r.name}</Link>
+            </div>
+            <table className="data text-sm">
+              <tbody>
+                {line("Enviadas a Amazon", r.sent, "", false, r.sentSource === "amazon" ? "Según los envíos en Amazon" : "Según los envíos registrados en la app")}
+                {r.sent !== r.received && line("Amazon no las recibió", r.sent - r.received, "−")}
+                {line("Vendidas", r.sold, "−")}
+                {r.returned > 0 && line("Devueltas por clientes", r.returned, "+")}
+                {r.reimbursed !== 0 && line("Perdidas o dañadas que Amazon pagó", r.reimbursed - (r.sentSource === "amazon" ? r.reimbursedInbound : 0), "−")}
+                {line("Debería tener Amazon", r.expected, "=", true)}
+                {line("Amazon reporta hoy", r.amazonNow, "", true,
+                  `Disponible ${r.available} · Reservado ${r.reserved} · No vendible ${r.unfulfillable} · En investigación ${r.researching}`)}
+              </tbody>
+            </table>
+            {r.diff < 0 ? (
+              <div className="rounded-lg p-3 text-sm space-y-1" style={{ background: "var(--neg-soft)" }}>
+                <b className="neg">Faltan {units(-r.diff)} unidades.</b>
+                <p>{r.sent !== r.received ? "Amazon recibió menos de lo enviado. " : ""}Abre un caso en Seller Central → Help → Fulfillment by Amazon → <i>Investigate inventory</i> (o <i>Investigate shipment</i> si fue en la recepción) y pide el reembolso.</p>
+                {r.researching > 0 && <p className="muted text-xs">{r.researching} ya están “en investigación” por Amazon.</p>}
+              </div>
+            ) : r.diff > 0 ? (
+              <div className="rounded-lg p-3 text-sm" style={{ background: "var(--warn-soft)" }}>Amazon tiene {units(r.diff)} unidades más de las esperadas (por ejemplo, devoluciones que aún no se reembolsan).</div>
+            ) : (
+              <div className="rounded-lg p-3 text-sm pos" style={{ background: "var(--pos-soft)" }}>Cuadra exacto.</div>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="muted text-xs">“Reservado” son unidades de pedidos que Amazon está preparando o que mueve entre sus centros: siguen siendo tuyas. Las ventas cuentan cuando Amazon envía el pedido.</p>
     </div>
   );
 }
