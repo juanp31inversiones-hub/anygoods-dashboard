@@ -48,7 +48,7 @@ export function CostForm({ cost, purchaseOrders, counterparties, transactions, d
         </select>
       </Field>
       <Field label="Monto (USD) *" hint="Para descuentos escribe el monto en positivo: se resta automáticamente.">
-        <input name="amount" type="number" step="0.01" min="0" required defaultValue={cost ? Math.abs(Number(cost.amount)) : ""} className="input" />
+        <input name="amount" type="text" inputMode="decimal" autoComplete="off" required defaultValue={cost ? Math.abs(Number(cost.amount)) : ""} className="input" />
       </Field>
       <Field label="Aplica a">
         <select name="product_id" defaultValue={cost?.product_id ?? defaultProduct ?? ""} key={poId} className="input">

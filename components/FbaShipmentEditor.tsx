@@ -133,7 +133,7 @@ export function FbaShipmentEditor({ initial, products, defaultProduct }: {
         </Field>
         <Field label="Tracking"><input value={s.tracking} onChange={(e) => set("tracking", e.target.value)} className="input" /></Field>
         <Field label="Cajas"><input type="number" min="0" value={s.boxes} onChange={(e) => set("boxes", e.target.value)} className="input" /></Field>
-        <Field label="Peso total (lb)"><input type="number" min="0" step="0.01" value={s.weight_lb} onChange={(e) => set("weight_lb", e.target.value)} className="input" /></Field>
+        <Field label="Peso total (lb)"><input type="text" inputMode="decimal" autoComplete="off" value={s.weight_lb} onChange={(e) => set("weight_lb", e.target.value.replace(",", "."))} className="input" /></Field>
         <Field label="Notas"><input value={s.notes} onChange={(e) => set("notes", e.target.value)} className="input" /></Field>
       </section>
 
@@ -269,7 +269,7 @@ export function FbaShipmentEditor({ initial, products, defaultProduct }: {
                       <option value="value">Valor</option>
                     </select>
                   </td>
-                  <td className="num w-32"><input type="number" step="0.01" min="0" value={c.amount} onChange={(e) => setCost(i, { amount: e.target.value })} className="input text-right" /></td>
+                  <td className="num w-32"><input type="text" inputMode="decimal" autoComplete="off" value={c.amount} onChange={(e) => setCost(i, { amount: e.target.value.replace(",", ".") })} className="input text-right" /></td>
                   <td><button type="button" aria-label="Quitar" className="neg" onClick={() => setS((x) => ({ ...x, costs: x.costs.filter((_, j) => j !== i) }))}><X size={16} /></button></td>
                 </tr>
               ))}

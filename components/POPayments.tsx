@@ -81,7 +81,7 @@ export function POPayments({ poId, total, payments, agents, transactions }: {
         <form ref={form} action={action} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 rounded-lg p-4" style={{ background: "var(--bg)" }}>
           <input type="hidden" name="purchase_order_id" value={poId} />
           <Field label="Fecha"><input type="date" name="paid_on" required defaultValue={new Date().toISOString().slice(0, 10)} className="input" /></Field>
-          <Field label="Monto (USD)"><input type="number" name="amount" step="0.01" min="0.01" required defaultValue={balance > 0 ? balance : ""} className="input" /></Field>
+          <Field label="Monto (USD)"><input type="text" inputMode="decimal" autoComplete="off" name="amount" required defaultValue={balance > 0 ? balance : ""} className="input" /></Field>
           <Field label="¿Cómo se pagó?">
             <select name="method" value={method} onChange={(e) => setMethod(e.target.value)} className="input">
               {Object.entries(PAYMENT_METHOD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

@@ -12,9 +12,17 @@ const str = (fd: FormData, k: string) => {
   const v = String(fd.get(k) ?? "").trim();
   return v === "" ? null : v;
 };
+/** Número escrito por el usuario: acepta "16,80", "16.80", "1.234,56", "1,234.56" y "$". */
+function parseAmount(raw: string) {
+  let v = raw.replace(/[\s$]/g, "");
+  const lastComma = v.lastIndexOf(","), lastDot = v.lastIndexOf(".");
+  if (lastComma > lastDot) v = v.replace(/\./g, "").replace(",", ".");
+  else v = v.replace(/,/g, "");
+  return Number(v);
+}
 const num = (fd: FormData, k: string) => {
   const v = str(fd, k);
-  return v === null ? null : Number(v);
+  return v === null ? null : parseAmount(v);
 };
 
 function friendly(error: { code?: string; message: string }) {

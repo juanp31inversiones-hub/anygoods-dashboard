@@ -166,7 +166,7 @@ export function POForm({ initial, suppliers, products, stock = {} }: {
                   </td>
                   <td className="num w-20"><input type="number" step="any" min="0" value={l.cases} onChange={(e) => setLine(i, { cases: e.target.value })} className="input text-right" /></td>
                   <td className="num w-24"><input type="number" min="1" required value={l.units} onChange={(e) => setLine(i, { units: e.target.value })} className="input text-right" /></td>
-                  <td className="num w-28"><input type="number" step="0.0001" min="0" required value={l.unit_cost} onChange={(e) => setLine(i, { unit_cost: e.target.value })} className="input text-right" /></td>
+                  <td className="num w-28"><input type="text" inputMode="decimal" autoComplete="off" required value={l.unit_cost} onChange={(e) => setLine(i, { unit_cost: e.target.value.replace(",", ".") })} className="input text-right" /></td>
                   <td className="num">{money(u * Number(l.unit_cost || 0))}</td>
                   <td className="num muted">{money(extra)}</td>
                   <td className="num font-semibold">{money(Number(l.unit_cost || 0) + extra)}</td>
@@ -219,8 +219,8 @@ export function POForm({ initial, suppliers, products, stock = {} }: {
                     </select>
                   </td>
                   <td className="num w-32">
-                    <input type="number" step="0.01" min="0" required value={c.amount}
-                      onChange={(e) => setCost(i, { amount: e.target.value })} className="input text-right" />
+                    <input type="text" inputMode="decimal" autoComplete="off" required value={c.amount}
+                      onChange={(e) => setCost(i, { amount: e.target.value.replace(",", ".") })} className="input text-right" />
                   </td>
                   <td><button type="button" aria-label="Quitar costo" className="neg" onClick={() => setPo((p) => ({ ...p, costs: p.costs.filter((_, j) => j !== i) }))}><X size={16} /></button></td>
                 </tr>

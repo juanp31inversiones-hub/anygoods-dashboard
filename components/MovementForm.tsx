@@ -46,7 +46,7 @@ export function MovementForm({ products, defaultProduct }: { products: { id: str
           </select>
         </Field>
       ) : (
-        <Field label="Precio por unidad (opcional)"><input name="unit_price" type="number" step="0.01" className="input" /></Field>
+        <Field label="Precio por unidad (opcional)"><input name="unit_price" type="text" inputMode="decimal" autoComplete="off" className="input" /></Field>
       )}
       <Field label="Cantidad *"><input name="qty" type="number" required className="input" /></Field>
       <Field label="Referencia (envío FBA, orden, etc.)"><input name="reference" className="input" /></Field>

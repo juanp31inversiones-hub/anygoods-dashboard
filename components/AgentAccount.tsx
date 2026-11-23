@@ -61,7 +61,7 @@ export function AgentAccount({ counterpartyId, name, rows }: { counterpartyId: s
                 {Object.entries(AGENT_ENTRY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </Field>
-            <Field label="Monto (USD)"><input type="number" name="amount" step="0.01" required className="input" /></Field>
+            <Field label="Monto (USD)"><input type="text" inputMode="decimal" autoComplete="off" name="amount" required className="input" /></Field>
             <Field label="Descripción"><input name="description" className="input" /></Field>
             <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-4">
               <SubmitButton />

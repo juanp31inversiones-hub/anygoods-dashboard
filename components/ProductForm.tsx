@@ -75,7 +75,7 @@ export function ProductForm({ product }: { product?: Product }) {
           <Field label="UPC"><input name="upc" defaultValue={product?.upc ?? ""} className="input" /></Field>
           <Field label="SKU"><input name="sku" defaultValue={product?.sku ?? ""} className="input" /></Field>
           <Field label="Unidades por caja"><input name="units_per_case" type="number" min="1" defaultValue={product?.units_per_case ?? ""} className="input" /></Field>
-          <Field label="Precio en Amazon (USD)"><input name="retail_price" type="number" step="0.01" min="0" defaultValue={product?.retail_price ?? ""} className="input" /></Field>
+          <Field label="Precio en Amazon (USD)"><input name="retail_price" type="text" inputMode="decimal" autoComplete="off" defaultValue={product?.retail_price ?? ""} className="input" /></Field>
           <Field label="Notas" className="sm:col-span-2">
             <textarea name="notes" rows={2} defaultValue={product?.notes ?? ""} className="input" />
           </Field>

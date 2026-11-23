@@ -31,20 +31,23 @@ const CATS = {
 const PARTNER_CATS = ["capital_contribution", "capital_return"];
 const NO_WHO = ["amazon_payout", "transfer", "fees", ...PARTNER_CATS];
 
-export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrders, customCategories = [] }: {
+export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrders, customCategories = [], recentCounterparties = [] }: {
   txn?: Txn;
   accounts: Option[];
   counterparties: Counterparty[];
   partners: { id: string; short_name: string }[];
   purchaseOrders: (Option & { supplier_id?: string | null })[];
   customCategories?: CustomCategory[];
+  recentCounterparties?: string[];
 }) {
   const [state, action] = useActionState<ActionState, FormData>(saveTransaction, undefined);
   const [direction, setDirection] = useState<"out" | "in">(txn && Number(txn.amount) > 0 ? "in" : "out");
   const [category, setCategory] = useState(txn?.category ?? "");
   const [newCategory, setNewCategory] = useState<string | null>(null);
   const [partner, setPartner] = useState(txn?.partner_id ?? "");
-  const [who, setWho] = useState(counterparties.find((c) => c.id === txn?.counterparty_id)?.name ?? "");
+  // "¿A quién?": se elige de una lista (evita escribir "Google" distinto cada vez); "__new" = agregar uno nuevo
+  const [whoId, setWhoId] = useState(txn?.counterparty_id ?? "");
+  const [newWho, setNewWho] = useState("");
   const [po, setPo] = useState(txn?.purchase_order_id ?? "");
   const [description, setDescription] = useState(txn?.description ?? "");
 
@@ -52,7 +55,14 @@ export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrder
   const cats = [...CATS[direction], ...customCategories.filter((c) => c.direction === direction).map((c) => c.key)];
   const needsPartner = PARTNER_CATS.includes(category);
   const needsWho = !NO_WHO.includes(category);
-  const whoMatch = counterparties.find((c) => c.name.toLowerCase() === who.trim().toLowerCase());
+  const whoMatch = counterparties.find((c) => c.id === whoId);
+  const who = whoMatch?.name ?? (whoId === "__new" ? newWho : "");
+  const norm = (t: string) => t.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+  // Si el nombre nuevo se parece a uno que ya existe, se sugiere usar ese
+  const similar = whoId === "__new" && norm(newWho).length >= 3
+    ? counterparties.find((c) => norm(c.name).includes(norm(newWho)) || norm(newWho).includes(norm(c.name)))
+    : undefined;
+  const recent = recentCounterparties.map((id) => counterparties.find((c) => c.id === id)).filter(Boolean) as Counterparty[];
   const supplierPos = purchaseOrders.filter((p) => !whoMatch || !p.supplier_id || p.supplier_id === whoMatch.id);
   const partnerName = partners.find((p) => p.id === partner)?.short_name;
   // Si no escriben descripción, se arma sola: "Aporte socio · Juan Pedro", "Inventario · Cleaning Heroes"
@@ -70,7 +80,7 @@ export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrder
       <input type="hidden" name="new_category" value={newCategory ?? ""} />
       <input type="hidden" name="partner_id" value={needsPartner ? partner : ""} />
       <input type="hidden" name="counterparty_id" value={needsWho && whoMatch ? whoMatch.id : category === "amazon_payout" || category === "fees" ? counterparties.find((c) => c.name === "Amazon")?.id ?? "" : ""} />
-      <input type="hidden" name="counterparty_name" value={needsWho && !whoMatch ? who.trim() : ""} />
+      <input type="hidden" name="counterparty_name" value={needsWho && whoId === "__new" ? newWho.trim() : ""} />
       <input type="hidden" name="auto_description" value={auto} />
 
       {/* 1. ¿Entra o sale? */}
@@ -91,7 +101,7 @@ export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrder
         <span className="label">Monto</span>
         <div className="flex items-center gap-2 rounded-xl border px-3" style={{ borderColor: "var(--border)" }}>
           <span className="text-2xl muted">$</span>
-          <input name="amount" type="number" inputMode="decimal" step="0.01" min="0.01" required placeholder="0.00"
+          <input name="amount" type="text" inputMode="decimal" autoComplete="off" required placeholder="0.00"
             defaultValue={txn ? Math.abs(Number(txn.amount)) : ""} className="w-full bg-transparent text-3xl font-semibold py-2 outline-none tabular-nums" />
         </div>
       </label>
@@ -131,12 +141,29 @@ export function TxnForm({ txn, accounts, counterparties, partners, purchaseOrder
         </div>
       )}
       {needsWho && (
-        <Field label={direction === "out" ? (category === "inventory" ? "¿A qué proveedor?" : "¿A quién se le pagó?") : "¿Quién te pagó?"}
-          hint={who.trim() && !whoMatch ? `“${who.trim()}” no existe: se creará al guardar.` : undefined}>
-          <input list="txn-counterparties" value={who} onChange={(e) => setWho(e.target.value)} placeholder="Escribe o elige un nombre" className="input" />
-          <datalist id="txn-counterparties">
-            {counterparties.map((c) => <option key={c.id} value={c.name} />)}
-          </datalist>
+        <Field label={direction === "out" ? (category === "inventory" ? "¿A qué proveedor?" : "¿A quién se le pagó?") : "¿Quién te pagó?"}>
+          <select value={whoId} onChange={(e) => setWhoId(e.target.value)} className="input">
+            <option value="">Elegir…</option>
+            {recent.length > 0 && (
+              <optgroup label="Recientes">
+                {recent.map((c) => <option key={`r-${c.id}`} value={c.id}>{c.name}</option>)}
+              </optgroup>
+            )}
+            <optgroup label="Todos">
+              {counterparties.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+            <option value="__new">+ Agregar uno nuevo…</option>
+          </select>
+          {whoId === "__new" && (
+            <div className="mt-2 space-y-1">
+              <input autoFocus value={newWho} onChange={(e) => setNewWho(e.target.value)} placeholder="Nombre (ej: Google)" className="input" />
+              {similar ? (
+                <button type="button" onClick={() => setWhoId(similar.id)} className="text-xs link">
+                  Ya existe “{similar.name}”. Toca aquí para usarlo
+                </button>
+              ) : newWho.trim() ? <span className="muted text-xs">Se creará “{newWho.trim()}” al guardar.</span> : null}
+            </div>
+          )}
         </Field>
       )}
       {category === "inventory" && direction === "out" && (

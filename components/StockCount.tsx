@@ -118,8 +118,8 @@ export function StockCount({ rows, focus, receivers = [] }: { rows: StockRow[]; 
                   {priced && (
                     <td className="num w-28">
                       {d < 0 && (
-                        <input type="number" min="0" step="0.01" placeholder="0.00" value={prices[key(r)] ?? ""}
-                          onChange={(e) => setPrices((p) => ({ ...p, [key(r)]: e.target.value }))} className="input text-right" />
+                        <input type="text" inputMode="decimal" autoComplete="off" placeholder="0.00" value={prices[key(r)] ?? ""}
+                          onChange={(e) => setPrices((p) => ({ ...p, [key(r)]: e.target.value.replace(",", ".") }))} className="input text-right" />
                       )}
                     </td>
                   )}
